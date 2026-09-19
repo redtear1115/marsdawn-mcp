@@ -1,0 +1,23 @@
+{
+  "name": "marsdawn-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server that exports Markdown to PDF on macOS with the marsdawn CLI",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check-schemas": "node scripts/check-schemas.js",
+    "validate": "mcpb validate manifest.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2"
+  }
+}
