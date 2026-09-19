@@ -1,0 +1,8 @@
+# Not part of the bundle: tests, tooling and repository files. Anchored, so
+# directories of the same name inside node_modules are left alone.
+/test/
+/scripts/
+/.github/
+/.gitignore
+/.mcpbignore
+*.mcpb
