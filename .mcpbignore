@@ -5,6 +5,7 @@
 /.github/
 /.gitignore
 /.mcpbignore
+/CONTRIBUTING.md
 *.mcpb
 # The registry entry describes the bundle; it is not part of it.
 /server.json
