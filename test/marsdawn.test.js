@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -206,6 +206,27 @@ test("export: a file that doesn't report a version is refused", async () => {
   const result = await createExporter({ configuredPath: impostor, env: process.env, fallbacks: [] })({ input });
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /didn't report a version/);
+});
+
+test("export: shell syntax in a path reaches marsdawn as one argument and never runs", async () => {
+  // Guards the no-shell call: with `shell: true` on execFile, each of these runs its command.
+  const directory = mkdtempSync(join(tmpdir(), "marsdawn-mcp-"));
+  const log = join(directory, "argv");
+  const inputs = [
+    `${directory}/a.md; touch ${directory}/pwned-semicolon`,
+    `${directory}/$(touch ${directory}/pwned-dollar).md`,
+    `${directory}/\`touch ${directory}/pwned-backtick\`.md`,
+    `${directory}/a.md && touch ${directory}/pwned-and`,
+    `${directory}/a.md | touch ${directory}/pwned-pipe`,
+  ];
+  const exportMarkdown = fakeExporter("success", { FAKE_MARSDAWN_ARGV: log });
+  for (const hostile of inputs) await exportMarkdown({ input: hostile });
+
+  const pwned = readdirSync(directory).filter((name) => name.startsWith("pwned"));
+  assert.deepEqual(pwned, [], `commands ran: ${pwned.join(", ")}`);
+  const exports = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((args) => args[0] === "export");
+  assert.deepEqual(exports.map((args) => args[1]), inputs);
+  for (const args of exports) assert.deepEqual(args.slice(2), ["--json"]);
 });
 
 test("export: a bad argument is refused without running anything", async () => {
