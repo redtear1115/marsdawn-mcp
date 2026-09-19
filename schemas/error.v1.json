@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marsdawn.southern-light.dev/schemas/cli/error.v1.json",
+  "title": "marsdawn --json: failure",
+  "description": "Printed on stdout as one line when a command run with --json fails with exit code 2, 3, 4 or 5. Usage errors (exit code 64) are printed as text on stderr instead.",
+  "type": "object",
+  "required": [
+    "ok",
+    "error",
+    "message"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ok": {
+      "const": false
+    },
+    "error": {
+      "enum": [
+        "input_not_found",
+        "app_not_installed",
+        "output_exists",
+        "export_failed"
+      ],
+      "description": "Machine-readable failure kind."
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable explanation."
+    }
+  }
+}

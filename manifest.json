@@ -1,0 +1,50 @@
+{
+  "manifest_version": "0.2",
+  "name": "marsdawn",
+  "display_name": "MarsDawn",
+  "version": "0.1.0",
+  "description": "Export Markdown to PDF on macOS with the marsdawn command-line tool.",
+  "long_description": "Lets an agent turn a Markdown file into a paginated PDF, rendered like MarsDawn's preview, by running the marsdawn command-line tool installed on this Mac. It needs marsdawn 0.5.0 or later: brew install redtear1115/tap/marsdawn.",
+  "author": {
+    "name": "Ray",
+    "url": "https://github.com/redtear1115"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/redtear1115/marsdawn-mcp"
+  },
+  "homepage": "https://marsdawn.southern-light.dev/cli/",
+  "license": "Apache-2.0",
+  "keywords": ["markdown", "pdf", "export", "macos", "mermaid"],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "MARSDAWN_PATH": "${user_config.marsdawn_path}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "export_markdown_to_pdf",
+      "description": "Export a Markdown file to a paginated PDF with the marsdawn command-line tool."
+    }
+  ],
+  "user_config": {
+    "marsdawn_path": {
+      "type": "file",
+      "title": "marsdawn path",
+      "description": "Where the marsdawn command-line tool is. Leave empty to look in PATH, /opt/homebrew/bin and /usr/local/bin.",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

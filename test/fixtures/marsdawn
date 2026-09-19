@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+// A stand-in for the marsdawn CLI. FAKE_MARSDAWN_MODE picks what it does; FAKE_MARSDAWN_ARGV,
+// when set, gets one JSON line per run with the arguments it was given.
+
+import { appendFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+if (process.env.FAKE_MARSDAWN_ARGV) appendFileSync(process.env.FAKE_MARSDAWN_ARGV, `${JSON.stringify(args)}\n`);
+
+if (args[0] === "--version") {
+  process.stdout.write(`${process.env.FAKE_MARSDAWN_VERSION ?? "0.5.0"}\n`);
+  process.exit(0);
+}
+
+const input = args[1];
+const failure = (code, error, message) => {
+  process.stdout.write(`${JSON.stringify({ ok: false, error, message })}\n`);
+  process.exit(code);
+};
+
+switch (process.env.FAKE_MARSDAWN_MODE ?? "success") {
+  case "success": {
+    const outputIndex = args.indexOf("--output");
+    const output = outputIndex >= 0 ? args[outputIndex + 1] : input.replace(/\.[^./]*$/, "") + ".pdf";
+    const theme = args.includes("--theme") ? args[args.indexOf("--theme") + 1] : "dawn";
+    const paper = args.includes("--paper") ? args[args.indexOf("--paper") + 1] : "a4";
+    const diagramErrors = process.env.FAKE_MARSDAWN_DIAGRAM_ERROR ? [process.env.FAKE_MARSDAWN_DIAGRAM_ERROR] : [];
+    process.stdout.write(`${JSON.stringify({ diagramErrors, ok: true, output, pages: 1, paper, theme })}\n`);
+    process.exit(0);
+  }
+  case "input_not_found":
+    failure(2, "input_not_found", `No such file: ${input}`);
+  case "output_exists":
+    failure(4, "output_exists", `${input.replace(/\.md$/, ".pdf")} already exists. Pass --force to replace it.`);
+  case "export_failed":
+    failure(5, "export_failed", "Export failed: the page could not be laid out.");
+  case "usage":
+    process.stderr.write("Error: Unknown option '--bogus'\nUsage: marsdawn export <file>\n");
+    process.exit(64);
+  case "bad_theme":
+    process.stdout.write(`${JSON.stringify({ diagramErrors: [], ok: true, output: "/tmp/x.pdf", pages: 1, paper: "a4", theme: "dark" })}\n`);
+    process.exit(0);
+  case "not_json":
+    process.stdout.write("Exported somewhere (1 page)\n");
+    process.exit(0);
+  case "long_line":
+    process.stdout.write(`${"y".repeat(50_000)}\n`, () => process.exit(0));
+    break;
+  case "incomplete":
+    process.stdout.write(`${JSON.stringify({ ok: true, output: "/tmp/x.pdf" })}\n`);
+    process.exit(0);
+  case "unknown_kind":
+    failure(5, "something_new", "A kind this server doesn't know.");
+  case "hang":
+    setInterval(() => {}, 1000);
+    break;
+  case "flood":
+    // Exit only once the pipe has taken it all; exiting straight after write() truncates at 64 KB.
+    process.stdout.write("x".repeat(2 * 1024 * 1024), () => process.exit(0));
+    break;
+  default:
+    process.stderr.write(`unknown FAKE_MARSDAWN_MODE ${process.env.FAKE_MARSDAWN_MODE}\n`);
+    process.exit(70);
+}

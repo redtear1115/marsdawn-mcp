@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marsdawn.southern-light.dev/schemas/cli/export.v1.json",
+  "title": "marsdawn export --json: success",
+  "description": "Printed on stdout as one line when `marsdawn export --json` succeeds (exit code 0).",
+  "type": "object",
+  "required": [
+    "ok",
+    "output",
+    "pages",
+    "theme",
+    "paper",
+    "diagramErrors"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "output": {
+      "type": "string",
+      "description": "Absolute path of the PDF that was written."
+    },
+    "pages": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of pages in the PDF."
+    },
+    "theme": {
+      "enum": [
+        "dawn",
+        "classic",
+        "modern",
+        "vivid"
+      ],
+      "description": "Theme used for the export."
+    },
+    "paper": {
+      "enum": [
+        "a4",
+        "letter"
+      ],
+      "description": "Paper size used for the export."
+    },
+    "diagramErrors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "One message per Mermaid diagram that failed to render. The PDF is still written."
+    }
+  }
+}
