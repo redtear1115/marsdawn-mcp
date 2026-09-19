@@ -4,6 +4,8 @@ marsdawn-mcp is the MCP server that lets an AI agent export Markdown to PDF on m
 the `marsdawn` CLI. This repo covers the server, its one tool (`export_markdown_to_pdf`), the
 bundle (`manifest.json`, packaging) and `server.json`.
 
+This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## What goes elsewhere
 
 - Bugs in the `marsdawn` CLI itself, the Markdown renderer or PDF output —
