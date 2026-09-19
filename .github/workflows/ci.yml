@@ -35,3 +35,33 @@ jobs:
         with:
           node-version: "22"
       - run: npm run check-schemas
+
+  bundle:
+    # Builds the .mcpb from the committed tree, then drives the unpacked bundle's server
+    # against a real marsdawn installed the way a user installs it.
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - run: npm ci
+      - name: Pack
+        run: scripts/pack.sh marsdawn.mcpb
+      - name: The bundle holds the server and nothing from test/ or scripts/
+        run: |
+          unzip -Z1 marsdawn.mcpb | grep -v '^node_modules/' | LC_ALL=C sort | tee bundle-files.txt
+          diff <(printf '%s\n' LICENSE README.md manifest.json package.json schemas/error.v1.json schemas/export.v1.json server/index.js server/marsdawn.js server/tool.js) bundle-files.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: marsdawn.mcpb
+          path: marsdawn.mcpb
+          if-no-files-found: error
+      - name: Install marsdawn from the tap, as a user would
+        run: brew install redtear1115/tap/marsdawn && marsdawn --version
+      - name: Drive the unpacked bundle against the real marsdawn
+        run: node scripts/smoke-bundle.js marsdawn.mcpb "$(brew --prefix)/bin/marsdawn"
