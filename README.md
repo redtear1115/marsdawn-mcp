@@ -3,8 +3,9 @@
 An MCP server that lets an AI agent export Markdown to PDF on macOS by running the
 [`marsdawn`](https://marsdawn.southern-light.dev/cli/) command-line tool you already have.
 
-Nothing has been released yet. There is no bundle to install and no registry listing; this
-README will say how to install it once there is.
+The first release, [0.1.0](https://github.com/redtear1115/marsdawn-mcp/releases/tag/v0.1.0), is
+an MCP Bundle, `marsdawn.mcpb`, attached to the release. It isn't listed in the MCP Registry
+yet; `server.json` is the entry that will be published there as `dev.southern-light.mcp/marsdawn`.
 
 ## What it does
 
@@ -48,6 +49,7 @@ npm ci
 npm test               # unit and stdio tests, against a fake marsdawn
 npm run check-schemas  # the vendored schemas match the ones the site publishes
 npx mcpb validate manifest.json
+node scripts/check-server-json.js   # server.json's fileSha256 matches the release asset
 ```
 
 `schemas/` holds copies of the JSON Schemas published at
