@@ -39,6 +39,42 @@ need to reproduce that locally unless you're touching packaging.
 `https://marsdawn.southern-light.dev/schemas/cli/`. Update them by copying the published files,
 never by editing them here.
 
+## Releasing
+
+The planned flow (CI's `build`/`publish` jobs in `release.yml` land in a follow-up; this section
+describes where it's headed):
+
+1. Merge a version-bump PR (package.json, package-lock.json, manifest.json and server.json all
+   move to the new version; server.json's `fileSha256` is left as the previous release's — it's
+   corrected in step 3). CI's `server-json` job stays red on `main` between merge and step 3,
+   because it's now checking a version with no release yet, and `--allow-unreleased` only covers
+   pull requests.
+2. From `main`, run **Actions ▸ Release ▸ Run workflow**. It builds, smoke-tests, drafts,
+   verifies the asset's hash and publishes the GitHub release, then pushes a branch that stamps
+   server.json's `fileSha256` with the published asset's real hash.
+3. Merge the stamp PR. Before merging it, run the **strict** check by hand (no
+   `--allow-unreleased`) against its tree:
+
+   ```sh
+   node scripts/check-server-json.js
+   ```
+
+4. Publish to the MCP Registry by hand — this needs the owner's DNS private key, which never
+   leaves the Futari Secrets disk image and never becomes a GitHub secret. Run the strict check
+   first, same as step 3, then follow the `mcp-publisher` steps in the publish guide.
+
+### Recovery
+
+- **A stale draft release**: delete it (a draft creates no tag, so nothing else needs cleaning
+  up), then rerun the release workflow.
+- **A release published but no stamp branch/PR**: rerun the release workflow with `stamp_only`,
+  which redoes only the stamp step against the already-published release.
+
+These are the two recovery paths the release workflow's design accounts for. Neither has been
+exercised against a forced failure yet: the owner declined standing up a throwaway repo to
+rehearse them, so the first real release run is also the first time either path gets used for
+real, not just reasoned about.
+
 ## Issues and pull requests
 
 Keep pull requests small and focused. Describe what changed and why. CI runs the unit tests across
