@@ -139,6 +139,18 @@ test("the output schema is export.v1.json minus $schema, $id and title", async (
   assert.equal(tool.annotations.destructiveHint, true);
 });
 
+test("S6: export's allowRemoteImages input makes the tool declare openWorldHint", async (t) => {
+  const client = await connect(t, {});
+  const { tools } = await client.listTools();
+  const tool = tools.find((candidate) => candidate.name === "export_markdown_to_pdf");
+  assert.ok("allowRemoteImages" in tool.inputSchema.properties, "fixture drifted: no allowRemoteImages input");
+  assert.equal(
+    tool.annotations.openWorldHint,
+    true,
+    "allowRemoteImages can make the tool fetch a URL from the rendered document; openWorldHint must be true",
+  );
+});
+
 test("a call over stdio returns structuredContent that the client validates against outputSchema", async (t) => {
   const tree = treeWithPlan();
   const client = await connect(t, { FAKE_MARSDAWN_MODE: "success" }, [tree]);

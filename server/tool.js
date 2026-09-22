@@ -69,7 +69,8 @@ export const exportTool = {
     readOnlyHint: false,
     destructiveHint: true,
     idempotentHint: false,
-    openWorldHint: false,
+    // allowRemoteImages lets this call fetch a URL from the rendered document.
+    openWorldHint: true,
   },
 };
 
