@@ -88,7 +88,7 @@ jobs:
       - name: The bundle holds the server and nothing from test/ or scripts/
         run: |
           unzip -Z1 marsdawn.mcpb | grep -v '^node_modules/' | LC_ALL=C sort | tee bundle-files.txt
-          diff <(printf '%s\n' LICENSE README.md manifest.json package.json schemas/error.v1.json schemas/export.v1.json schemas/open.v2.json server/allowed.js server/index.js server/marsdawn.js server/tool.js) bundle-files.txt
+          diff <(printf '%s\n' LICENSE README.md icon.png manifest.json package.json schemas/error.v1.json schemas/export.v1.json schemas/open.v2.json server/allowed.js server/index.js server/marsdawn.js server/tool.js) bundle-files.txt
       - name: Install marsdawn from the tap, as a user would
         id: marsdawn
         run: |
