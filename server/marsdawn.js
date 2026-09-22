@@ -4,7 +4,8 @@
 import { execFile } from "node:child_process";
 import { constants, readFileSync, statSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
-import { delimiter, isAbsolute, join } from "node:path";
+import { delimiter, join } from "node:path";
+import { checkExportPaths, checkOpenPath } from "./allowed.js";
 
 const schemaDirectory = new URL("../schemas/", import.meta.url);
 
@@ -122,19 +123,17 @@ function toolError(text) {
   return { isError: true, content: [{ type: "text", text }] };
 }
 
-/** Checks the tool's arguments and builds the CLI's. Returns `{ args }` or `{ error }`. */
-export function buildExportArguments(input) {
+/**
+ * Checks the tool's arguments and builds the CLI's. Returns `{ args }` or `{ error }`.
+ *
+ * Both paths are confined to `allowed` before anything is spawned, and the destination is always
+ * passed as `--output`, so the path the server checked is the path the CLI writes.
+ */
+export function buildExportArguments(input, { allowed = [], fs } = {}) {
   const { input: file, output, theme, paper, force, allowRemoteImages } = input ?? {};
-  if (typeof file !== "string" || !isAbsolute(file)) {
-    return { error: "`input` must be an absolute path, such as /Users/me/notes/plan.md." };
-  }
-  const args = ["export", file, "--json"];
-  if (output !== undefined) {
-    if (typeof output !== "string" || !isAbsolute(output)) {
-      return { error: "`output` must be an absolute path, such as /Users/me/notes/plan.pdf." };
-    }
-    args.push("--output", output);
-  }
+  const checked = checkExportPaths({ input: file, output }, allowed, fs);
+  if (checked.error) return { error: checked.error };
+  const args = ["export", file, "--json", "--output", checked.output];
   if (theme !== undefined) {
     if (!THEMES.includes(theme)) return { error: `\`theme\` must be one of ${THEMES.join(", ")}.` };
     args.push("--theme", theme);
@@ -172,11 +171,10 @@ function statOrUndefined(path) {
  * violates open.v2.json besides. No `folder` parameter either, for the same reason: it isn't
  * supported by the launch build. Both return in app 1.1, once the site publishes open.v3.json.
  */
-export function buildOpenArguments(input, { readStat = statOrUndefined } = {}) {
+export function buildOpenArguments(input, { allowed = [], fs, readStat = statOrUndefined } = {}) {
   const { path, line, background } = input ?? {};
-  if (typeof path !== "string" || !isAbsolute(path)) {
-    return { error: "`path` must be an absolute path, such as /Users/me/notes/plan.md." };
-  }
+  const checked = checkOpenPath(path, allowed, fs);
+  if (checked.error) return { error: checked.error };
   const info = readStat(path);
   if (!info) {
     return { error: `No such file: ${path}` };
@@ -311,10 +309,18 @@ function createLocator({ configuredPath, env = process.env, fallbacks, timeoutMs
  * The export tool, bound to one way of finding `marsdawn`. The located path and its version
  * check are cached after the first success, so a missing tool is looked for again next call.
  */
-export function createExporter({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
+export function createExporter({
+  configuredPath,
+  env = process.env,
+  fallbacks,
+  timeoutMs,
+  maxBytes,
+  allowed = async () => [],
+  fs,
+} = {}) {
   const locateChecked = createLocator({ configuredPath, env, fallbacks, timeoutMs, maxBytes });
   return async function exportMarkdown(input) {
-    const built = buildExportArguments(input);
+    const built = buildExportArguments(input, { allowed: await allowed(), fs });
     if (built.error) return toolError(built.error);
     const found = await locateChecked();
     if (found.error) return toolError(found.error);
@@ -326,10 +332,18 @@ export function createExporter({ configuredPath, env = process.env, fallbacks, t
  * The open tool, bound to one way of finding `marsdawn`. The located path and its version check
  * are cached after the first success, so a missing tool is looked for again next call.
  */
-export function createOpener({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
+export function createOpener({
+  configuredPath,
+  env = process.env,
+  fallbacks,
+  timeoutMs,
+  maxBytes,
+  allowed = async () => [],
+  fs,
+} = {}) {
   const locateChecked = createLocator({ configuredPath, env, fallbacks, timeoutMs, maxBytes });
   return async function openInMarsdawn(input) {
-    const built = buildOpenArguments(input);
+    const built = buildOpenArguments(input, { allowed: await allowed(), fs });
     if (built.error) return toolError(built.error);
     const found = await locateChecked();
     if (found.error) return toolError(found.error);
