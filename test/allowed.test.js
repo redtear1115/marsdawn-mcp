@@ -2,10 +2,14 @@
 // given, so "refused without touching the disk" is something a test can actually assert.
 
 import assert from "node:assert/strict";
+import { mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { ListRootsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   NOTHING_ALLOWED,
+  nodeFs,
   allowedDirectoriesFrom,
   checkExportPaths,
   checkOpenPath,
@@ -166,6 +170,38 @@ test("U3: an output under the symlinked directory is refused too", () => {
 test("U4: a missing file inside an allowed folder is passed through for the CLI to report", () => {
   const fs = fakeFs(baseTree());
   assert.deepEqual(checkReadable("/allowed/missing.md", ALLOWED, fs), { path: "/allowed/missing.md" });
+});
+
+test("U4b: a symlink inside whose target doesn't resolve is refused like one that resolves outside", () => {
+  // realpath fails with ENOENT for both a missing file and a dangling link; only the link itself,
+  // seen with lstat, tells them apart. The refusal is the outside one, word for word, so it says
+  // nothing about where the link points or whether anything is there.
+  const tree = baseTree();
+  tree.lstat["/allowed/dangling.md"] = "link";
+  const outside = checkReadable("/allowed/link.md", ALLOWED, fakeFs(baseTree())).error;
+  assert.match(outside, /`input` must be inside an allowed folder/);
+  assert.equal(checkReadable("/allowed/dangling.md", ALLOWED, fakeFs(tree)).error, outside);
+  assert.equal(checkExportPaths({ input: "/allowed/dangling.md" }, ALLOWED, fakeFs(tree)).error, outside);
+  assert.equal(
+    checkOpenPath("/allowed/dangling.md", ALLOWED, fakeFs(tree)).error,
+    checkOpenPath("/allowed/link.md", ALLOWED, fakeFs(baseTree())).error,
+  );
+});
+
+test("U4b: the same on the real filesystem, and a missing plain file beside the links still passes", () => {
+  const tree = realpathSync.native(mkdtempSync(join(tmpdir(), "marsdawn-mcp-")));
+  const outside = realpathSync.native(mkdtempSync(join(tmpdir(), "marsdawn-mcp-")));
+  writeFileSync(join(outside, "real.md"), "# Real\n");
+  symlinkSync(join(outside, "gone.md"), join(tree, "dangling-out.md"));
+  symlinkSync(join(tree, "gone.md"), join(tree, "dangling-in.md"));
+  symlinkSync(join(outside, "real.md"), join(tree, "link-out.md"));
+  const allowed = [tree];
+  const outsideError = checkReadable(join(tree, "link-out.md"), allowed, nodeFs).error;
+  assert.match(outsideError, /`input` must be inside an allowed folder/);
+  for (const name of ["dangling-out.md", "dangling-in.md"]) {
+    assert.equal(checkReadable(join(tree, name), allowed, nodeFs).error, outsideError, name);
+  }
+  assert.deepEqual(checkReadable(join(tree, "missing.md"), allowed, nodeFs), { path: join(tree, "missing.md") });
 });
 
 test("U4: a missing path outside is refused with the very message an existing one gets", () => {

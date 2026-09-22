@@ -528,6 +528,97 @@ test("S9: a roots/list_changed notification drops the cache", async (t) => {
   assert.equal((await exportCall(client, { input: join(first, "plan.md") })).isError, true);
 });
 
+test("S9b: a roots/list_changed that arrives while roots/list is being answered isn't lost", async (t) => {
+  // The first answer is held back until the client has announced a change; the answer it then
+  // gives is from before that change, so it may serve the call that asked but must not be kept.
+  const first = treeWithPlan();
+  const second = treeWithPlan();
+  const log = argvLog();
+  let asked = 0;
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  let firstAsked;
+  const askedOnce = new Promise((resolve) => {
+    firstAsked = resolve;
+  });
+  const { client } = await start(t, {
+    env: { FAKE_MARSDAWN_MODE: "success", FAKE_MARSDAWN_ARGV: log },
+    roots: {
+      listChanged: true,
+      handler: async () => {
+        asked += 1;
+        if (asked === 1) {
+          firstAsked();
+          await held;
+          return { roots: [{ uri: pathToFileURL(first).href }] };
+        }
+        return { roots: [{ uri: pathToFileURL(second).href }] };
+      },
+    },
+  });
+  const inFlight = exportCall(client, { input: join(first, "plan.md") });
+  await askedOnce;
+  await client.sendRootsListChanged();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  release();
+  await inFlight;
+  assert.equal(asked, 1, "only the held request so far");
+
+  const before = argvBytes(log);
+  const stale = await exportCall(client, { input: join(first, "plan.md") });
+  assert.equal(asked, 2, "the next call asks for roots again");
+  assert.equal(stale.isError, true, "the root from before the change is no longer allowed");
+  assert.match(stale.content[0].text, /`input` must be inside an allowed folder/);
+  assert.deepEqual(argvBytes(log), before, "the refused call didn't reach the CLI");
+
+  const fresh = await exportCall(client, { input: join(second, "plan.md") });
+  assert.equal(fresh.isError, undefined, fresh.content?.[0]?.text);
+  assert.equal(asked, 2, "an answer given after the change is cached as before");
+});
+
+test("S9c: a roots/list failure that lands after a roots/list_changed doesn't hold off the next ask", async (t) => {
+  // Without the change, a failure is remembered for 30 seconds; with one in between, the failure
+  // is about the old roots, so the next call asks straight away.
+  const tree = treeWithPlan();
+  let asked = 0;
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  let firstAsked;
+  const askedOnce = new Promise((resolve) => {
+    firstAsked = resolve;
+  });
+  const { client } = await start(t, {
+    env: { FAKE_MARSDAWN_MODE: "success" },
+    roots: {
+      listChanged: true,
+      handler: async () => {
+        asked += 1;
+        if (asked === 1) {
+          firstAsked();
+          await held;
+          throw new Error("not yet");
+        }
+        return { roots: [{ uri: pathToFileURL(tree).href }] };
+      },
+    },
+  });
+  const inFlight = exportCall(client, { input: join(tree, "plan.md") });
+  await askedOnce;
+  await client.sendRootsListChanged();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  release();
+  const failed = await inFlight;
+  assert.equal(failed.isError, true, "the call whose roots/list failed allows nothing");
+
+  const next = await exportCall(client, { input: join(tree, "plan.md") });
+  assert.equal(asked, 2, "the next call asked again instead of waiting out the failure");
+  assert.equal(next.isError, undefined, next.content?.[0]?.text);
+});
+
 test("S11: open says the same thing about a path outside whether or not it exists", async (t) => {
   const tree = treeWithPlan();
   const outside = treeWithPlan();
@@ -556,6 +647,42 @@ test("S12: a missing file inside an allowed folder is still the CLI's `input_not
   const result = await exportCall(client, { input: missing });
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, new RegExp(`No such file: ${missing.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(result.content[0].text, /Check that `input` is the absolute path/);
+  assert.deepEqual(addedRuns(Buffer.alloc(0), log), [
+    ["--version"],
+    ["export", missing, "--json", "--output", join(tree, "missing.pdf")],
+  ]);
+});
+
+test("S14: a dangling symlink input is refused like one that points outside; a missing plain file isn't", async (t) => {
+  const tree = treeWithPlan();
+  const outside = treeWithPlan();
+  symlinkSync(join(outside, "plan.md"), join(tree, "link-out.md"));
+  symlinkSync(join(outside, "gone.md"), join(tree, "dangling-out.md"));
+  symlinkSync(join(tree, "gone.md"), join(tree, "dangling-in.md"));
+  const log = argvLog();
+  const { client } = await start(t, {
+    folders: [tree],
+    env: { FAKE_MARSDAWN_MODE: "input_not_found", FAKE_MARSDAWN_ARGV: log },
+  });
+
+  const exportOut = await exportCall(client, { input: join(tree, "link-out.md") });
+  const openOut = await openCall(client, { path: join(tree, "link-out.md") });
+  assert.match(exportOut.content[0].text, /`input` must be inside an allowed folder/);
+  assert.match(openOut.content[0].text, /`path` must be inside an allowed folder/);
+  for (const name of ["dangling-out.md", "dangling-in.md"]) {
+    const exported = await exportCall(client, { input: join(tree, name) });
+    assert.equal(exported.isError, true, name);
+    assert.equal(exported.content[0].text, exportOut.content[0].text, `export, ${name}`);
+    const opened = await openCall(client, { path: join(tree, name) });
+    assert.equal(opened.isError, true, name);
+    assert.equal(opened.content[0].text, openOut.content[0].text, `open, ${name}`);
+  }
+  assert.deepEqual(argvBytes(log), Buffer.alloc(0), "no symlink reached the CLI");
+
+  const missing = join(tree, "missing.md");
+  const result = await exportCall(client, { input: missing });
+  assert.equal(result.isError, true);
   assert.match(result.content[0].text, /Check that `input` is the absolute path/);
   assert.deepEqual(addedRuns(Buffer.alloc(0), log), [
     ["--version"],
