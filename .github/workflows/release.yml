@@ -1,0 +1,349 @@
+name: Release
+
+# Manual only: dispatching needs write access to this repo, so fork PRs can never reach it. See
+# CONTRIBUTING.md's "Releasing" section for the flow and the recovery paths below.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run job build only (no draft, no publish, no push) — a rehearsal."
+        type: boolean
+        default: false
+      stamp_only:
+        description: "Skip straight to the stamp step, against an already-published release (recovery)."
+        type: boolean
+        default: false
+      notes:
+        description: "Optional extra text appended to the release notes."
+        type: string
+        required: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Runs all third-party code (npm, brew, mcpb). No write access: it only reads and packs.
+    if: ${{ !inputs.stamp_only }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      # github.ref is set by the runner from the dispatch, not from any text a person or a
+      # third-party tool supplies — but every value this workflow's shell steps touch goes through
+      # env, not inline ${{ }} substitution, so there's one rule to audit, not a judgment call per
+      # value. Same reasoning for REPO below in jobs publish and stamp.
+      REF: ${{ github.ref }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+      marsdawn_version: ${{ steps.marsdawn.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the version being released
+        id: version
+        run: echo "version=$(node -p "require('./server.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Step 0: ref guard. Runs before anything else, dry_run included — a dry run from the wrong
+      # ref should fail exactly the way a real one would.
+      - name: Refuse to run from anything but main
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::this workflow only runs from refs/heads/main (got $REF); dispatch it from main." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      # Step 1: consistency. Every version field agrees, the identifier is exact, and neither the
+      # tag nor a release for this version exists yet — all with the read-only token this job has.
+      - name: Consistency and release preconditions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-release-preconditions.js
+
+      # Step 2: the same gates as ci.yml's test/schemas/bundle jobs, on one runner so job `publish`
+      # only starts once every one of them has passed.
+      - run: npm ci
+      - run: npm test
+      - run: npm run check-schemas
+      - name: Validate the bundle manifest
+        run: npx mcpb validate manifest.json
+
+      # Step 3: pack, the same file-list check as ci.yml, install marsdawn from the tap, smoke-test.
+      - name: Pack
+        id: pack
+        run: |
+          scripts/pack.sh marsdawn.mcpb
+          echo "sha256=$(shasum -a 256 marsdawn.mcpb | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: The bundle holds the server and nothing from test/ or scripts/
+        run: |
+          unzip -Z1 marsdawn.mcpb | grep -v '^node_modules/' | LC_ALL=C sort | tee bundle-files.txt
+          diff <(printf '%s\n' LICENSE README.md manifest.json package.json schemas/error.v1.json schemas/export.v1.json schemas/open.v2.json server/index.js server/marsdawn.js server/tool.js) bundle-files.txt
+      - name: Install marsdawn from the tap, as a user would
+        id: marsdawn
+        run: |
+          brew install redtear1115/tap/marsdawn
+          echo "version=$(marsdawn --version)" >> "$GITHUB_OUTPUT"
+      - name: Drive the unpacked bundle against the real marsdawn
+        run: node scripts/smoke-bundle.js marsdawn.mcpb "$(brew --prefix)/bin/marsdawn"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: marsdawn.mcpb
+          path: marsdawn.mcpb
+          if-no-files-found: error
+
+  publish:
+    # publish and stamp are the two jobs with contents: write. Neither runs npm, npx, brew or
+    # pack.sh — everything job publish acts on was already built and verified by job build; it
+    # only moves that output into a release.
+    #
+    # Every value a shell step here touches — inputs.notes and needs.build.outputs.marsdawn_version
+    # especially, since neither is text this workflow itself wrote — comes in through `env:` and is
+    # referenced as a quoted shell variable, never spliced into the script text with inline ${{ }}.
+    # A value substituted inline becomes part of the bash script GitHub Actions runs, so backticks
+    # or $(...) inside it execute; a value read from an env var is just a string bash expands, and
+    # does not re-parse its contents as code.
+    needs: build
+    if: ${{ !inputs.dry_run && !inputs.stamp_only }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.build.outputs.version }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.sha }}
+      RUN_ID: ${{ github.run_id }}
+      SERVER_URL: ${{ github.server_url }}
+      BUILD_SHA256: ${{ needs.build.outputs.sha256 }}
+      MARSDAWN_VERSION: ${{ needs.build.outputs.marsdawn_version }}
+      NOTES: ${{ inputs.notes }}
+    outputs:
+      version: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: marsdawn.mcpb
+
+      # Step 4: atomic release.
+      - name: Re-check that main hasn't moved since this run started
+        run: |
+          tip=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          if [ "$tip" != "$SHA" ]; then
+            echo "::error::main is now at $tip, not $SHA this run started from; rerun the workflow on main's new tip." >&2
+            exit 1
+          fi
+          echo "ok - main is still at $SHA"
+
+      - name: Stale-draft check — list every release, fail if v$VERSION already has one
+        run: |
+          tag="v$VERSION"
+          ids=$(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.tag_name==\"$tag\") | .id")
+          if [ -n "$ids" ]; then
+            echo "::error::a release or draft for $tag already exists (id(s): $ids). Delete it — gh api -X DELETE repos/$REPO/releases/<id> — then rerun." >&2
+            exit 1
+          fi
+          echo "ok - no existing release or draft for $tag"
+
+      - name: Create the draft release
+        run: |
+          tag="v$VERSION"
+          notes_file=$(mktemp)
+          {
+            printf '%s\n' "Built by [this run]($SERVER_URL/$REPO/actions/runs/$RUN_ID) from commit \`$SHA\`."
+            printf '\n'
+            printf '%s\n' "Smoke-tested against marsdawn $MARSDAWN_VERSION from the tap."
+            if [ -n "$NOTES" ]; then
+              printf '\n'
+              printf '%s\n' "$NOTES"
+            fi
+          } > "$notes_file"
+          gh release create "$tag" marsdawn.mcpb --draft --target "$SHA" --title "$tag" --notes-file "$notes_file"
+          echo "ok - draft $tag created"
+
+      - name: Capture the draft's release id
+        id: draft
+        run: |
+          tag="v$VERSION"
+          id=$(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.tag_name==\"$tag\") | .id")
+          count=$(echo "$id" | grep -c . || true)
+          if [ "$count" != "1" ]; then
+            echo "::error::expected exactly one release for $tag after creating it, found $count (id(s): $id)" >&2
+            exit 1
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "ok - release id=$id"
+
+      - name: A draft creates no tag — assert v$VERSION is still absent from the remote tags
+        env:
+          DRAFT_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          tag="v$VERSION"
+          existing=$(git ls-remote --tags origin "refs/tags/$tag")
+          if [ -n "$existing" ]; then
+            echo "::error::refs/tags/$tag already exists on the remote right after creating release id=$DRAFT_ID as a draft; that should never happen." >&2
+            exit 1
+          fi
+          echo "ok - refs/tags/$tag does not exist yet (release id=$DRAFT_ID)"
+
+      - name: Download the draft's asset by id and verify its hash
+        env:
+          DRAFT_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          asset_id=$(gh api "repos/$REPO/releases/$DRAFT_ID" --jq '.assets[] | select(.name=="marsdawn.mcpb") | .id')
+          if [ -z "$asset_id" ]; then
+            echo "::error::release id=$DRAFT_ID has no marsdawn.mcpb asset" >&2
+            exit 1
+          fi
+          curl -sSL -f -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$REPO/releases/assets/$asset_id" -o downloaded.mcpb
+          sha=$(shasum -a 256 downloaded.mcpb | cut -d' ' -f1)
+          if [ "$sha" != "$BUILD_SHA256" ]; then
+            echo "::error::release id=$DRAFT_ID asset id=$asset_id hashes to $sha, but job build produced $BUILD_SHA256" >&2
+            exit 1
+          fi
+          echo "ok - release id=$DRAFT_ID asset id=$asset_id hashes to $sha, matching job build"
+
+      - name: Publish the release by id
+        env:
+          DRAFT_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          gh api -X PATCH "repos/$REPO/releases/$DRAFT_ID" -F draft=false > /dev/null
+          echo "ok - release id=$DRAFT_ID published (tag v$VERSION now exists, target $SHA)"
+
+      # Step 5: stamp. Downloads the now-public asset, verifies its hash again, patches only
+      # server.json's fileSha256, runs the strict check, and pushes a branch — no PR (Actions
+      # can't open one here; see CONTRIBUTING).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Stamp server.json's fileSha256 with the published asset's real hash
+        run: node scripts/stamp-server-json.js "$VERSION" server.json --expect-sha256="$BUILD_SHA256"
+
+      - name: Confirm the patched server.json passes the strict check
+        run: node scripts/check-server-json.js
+
+      - name: Push the stamp branch
+        id: stamp
+        run: |
+          branch="release/v$VERSION-server-json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add server.json
+          git commit -m "server.json: stamp v$VERSION's fileSha256 with the published release asset"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/$REPO.git" "HEAD:refs/heads/$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Job summary
+        env:
+          DRAFT_ID: ${{ steps.draft.outputs.id }}
+          STAMP_BRANCH: ${{ steps.stamp.outputs.branch }}
+        run: |
+          {
+            echo "## Release v$VERSION published"
+            echo
+            echo "- Release: $SERVER_URL/$REPO/releases/tag/v$VERSION (id $DRAFT_ID)"
+            echo "- Stamp branch: [\`$STAMP_BRANCH\`]($SERVER_URL/$REPO/compare/main...$STAMP_BRANCH)"
+            echo "- \`server-json\` on main is red until that compare is merged — expected (see CONTRIBUTING)."
+            echo
+            echo "### Manual next step"
+            echo "Publish to the MCP Registry by hand, after merging the stamp branch: run the strict"
+            echo "\`node scripts/check-server-json.js\` against its tree, then follow MCP-PUBLISH-GUIDE."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  stamp:
+    # stamp_only recovery: redoes step 5 alone, against an already-published release. Refuses if
+    # v<version> isn't published yet (a draft doesn't count — see check-server-json.js's
+    # probeRelease, which this reuses, and which can't see drafts through this endpoint).
+    #
+    # Also refuses dry_run + stamp_only together, and enforces the same ref guard as job build's
+    # step 0 — this job pushes a branch, so it needs the same "only from main" guarantee.
+    if: ${{ inputs.stamp_only && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      REF: ${{ github.ref }}
+      SERVER_URL: ${{ github.server_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Refuse to run from anything but main
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::this workflow only runs from refs/heads/main (got $REF); dispatch it from main." >&2
+            exit 1
+          fi
+
+      - name: Read the version and require a published release for it
+        id: version
+        run: |
+          version=$(node -p "require('./server.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if ! gh api "repos/$REPO/releases/tags/v$version" --silent; then
+            echo "::error::no published release v$version — stamp_only only redoes the stamp step against an already-published release. Run the release workflow normally first." >&2
+            exit 1
+          fi
+          echo "ok - v$version is published"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Stamp server.json's fileSha256 with the published asset's real hash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/stamp-server-json.js "$VERSION" server.json
+
+      - name: Confirm the patched server.json passes the strict check
+        run: node scripts/check-server-json.js
+
+      - name: Push the stamp branch
+        id: stamp
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          branch="release/v$VERSION-server-json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add server.json
+          git commit -m "server.json: stamp v$VERSION's fileSha256 with the published release asset (stamp_only)"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/$REPO.git" "HEAD:refs/heads/$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Job summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          STAMP_BRANCH: ${{ steps.stamp.outputs.branch }}
+        run: |
+          {
+            echo "## stamp_only: v$VERSION restamped"
+            echo
+            echo "- Stamp branch: [\`$STAMP_BRANCH\`]($SERVER_URL/$REPO/compare/main...$STAMP_BRANCH)"
+            echo
+            echo "### Manual next step"
+            echo "Publish to the MCP Registry by hand, after merging the stamp branch: run the strict"
+            echo "\`node scripts/check-server-json.js\` against its tree, then follow MCP-PUBLISH-GUIDE."
+          } >> "$GITHUB_STEP_SUMMARY"

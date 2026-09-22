@@ -41,20 +41,28 @@ never by editing them here.
 
 ## Releasing
 
-The planned flow (CI's `build`/`publish` jobs in `release.yml` land in a follow-up; this section
-describes where it's headed):
+`release.yml` is `workflow_dispatch` only (write access to the repo is required to dispatch it, so
+fork PRs can never reach it), with `concurrency: release` so only one run goes at a time. It has
+three jobs: `build` (packs and smoke-tests, read-only), `publish` (drafts, verifies and publishes
+the GitHub release, then stamps), and `stamp` (the `stamp_only` recovery job, below). `publish` and
+`stamp` are the two jobs with write access; `build` is read-only. Both `publish`'s stamp step and
+job `stamp` run no `npm`, `npx`, `brew` or `pack.sh` — everything they act on was already built and
+verified by job `build`.
 
 1. Merge a version-bump PR (package.json, package-lock.json, manifest.json and server.json all
    move to the new version; server.json's `fileSha256` is left as the previous release's — it's
    corrected in step 3). CI's `server-json` job runs `--allow-unreleased` on push to `main` too,
    so it's green right after the merge (the new version has no release yet, which is exactly what
    `--allow-unreleased` is for).
-2. From `main`, run **Actions ▸ Release ▸ Run workflow**. It builds, smoke-tests, drafts,
-   verifies the asset's hash and publishes the GitHub release, then pushes a branch that stamps
-   server.json's `fileSha256` with the published asset's real hash. Between the release publishing
-   and the stamp PR merging, `server-json` on `main` goes red: the release now exists, so
-   `--allow-unreleased` runs the strict check, and `main`'s `fileSha256` is still the placeholder
-   until step 3. Expected and temporary.
+2. From `main`, run **Actions ▸ Release ▸ Run workflow**, with `dry_run` and `stamp_only` left
+   unchecked (an optional `notes` input is appended to the release's notes). It builds,
+   smoke-tests, drafts, verifies the asset's hash and publishes the GitHub release, then pushes a
+   branch, `release/v<version>-server-json`, that stamps server.json's `fileSha256` with the
+   published asset's real hash. The run's job summary links the branch's compare page — Actions
+   can't open a PR here (no `can_approve_pull_request_reviews`), so open one from that link by
+   hand. Between the release publishing and that PR merging, `server-json` on `main` goes red: the
+   release now exists, so `--allow-unreleased` runs the strict check, and `main`'s `fileSha256` is
+   still the placeholder until step 3. Expected and temporary.
 3. Merge the stamp PR. Before merging it, run the **strict** check by hand (no
    `--allow-unreleased`) against its tree:
 
@@ -66,17 +74,25 @@ describes where it's headed):
    leaves the Futari Secrets disk image and never becomes a GitHub secret. Run the strict check
    first, same as step 3, then follow the `mcp-publisher` steps in the publish guide.
 
+`dry_run` runs job `build` only: a rehearsal of the packing and smoke test, with no draft, no
+release and no push — useful to check the ref guard and the version-consistency check (step 1)
+without touching anything.
+
 ### Recovery
 
-- **A stale draft release**: delete it (a draft creates no tag, so nothing else needs cleaning
-  up), then rerun the release workflow.
-- **A release published but no stamp branch/PR**: rerun the release workflow with `stamp_only`,
-  which redoes only the stamp step against the already-published release.
+- **A stale draft release**: delete it — `gh api -X DELETE repos/redtear1115/marsdawn-mcp/releases/<id>`
+  (a draft creates no tag, so nothing else needs cleaning up) — then rerun the release workflow.
+  The workflow checks for this itself before drafting: it lists every release and fails, naming the
+  id, if one already has the tag it's about to use.
+- **A release published but no stamp branch/PR**: rerun the release workflow with `stamp_only`
+  checked. That runs job `stamp` alone, which refuses unless a **published** (non-draft) release
+  for the current version already exists, then redoes only the stamp step against it.
 
 These are the two recovery paths the release workflow's design accounts for. Neither has been
 exercised against a forced failure yet: the owner declined standing up a throwaway repo to
-rehearse them, so the first real release run is also the first time either path gets used for
-real, not just reasoned about.
+rehearse them, so the first real release run (v0.2.0) is also the first real execution of the
+draft → verify → publish steps, and the first time either recovery path gets used for real, not
+just reasoned about.
 
 ## Issues and pull requests
 
