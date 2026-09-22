@@ -3,8 +3,8 @@
   "name": "marsdawn",
   "display_name": "MarsDawn",
   "version": "0.1.0",
-  "description": "Export Markdown to PDF on macOS with the marsdawn command-line tool.",
-  "long_description": "Lets an agent turn a Markdown file into a paginated PDF, rendered like MarsDawn's preview, by running the marsdawn command-line tool installed on this Mac. It needs marsdawn 0.5.0 or later: brew install redtear1115/tap/marsdawn.",
+  "description": "Export Markdown to PDF, and open Markdown files in the MarsDawn app, with the marsdawn command-line tool.",
+  "long_description": "Lets an agent turn a Markdown file into a paginated PDF, rendered like MarsDawn's preview, and open a Markdown file in the MarsDawn app for the user to review, by running the marsdawn command-line tool installed on this Mac. It needs marsdawn 0.5.0 or later: brew install redtear1115/tap/marsdawn.",
   "author": {
     "name": "Ray",
     "url": "https://github.com/redtear1115"
@@ -31,6 +31,10 @@
     {
       "name": "export_markdown_to_pdf",
       "description": "Export a Markdown file to a paginated PDF with the marsdawn command-line tool."
+    },
+    {
+      "name": "open_in_marsdawn",
+      "description": "Open a Markdown file in the MarsDawn app with the marsdawn command-line tool."
     }
   ],
   "user_config": {

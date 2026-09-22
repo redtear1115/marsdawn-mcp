@@ -2,7 +2,7 @@
 // Everything the tool reports comes from the CLI; this module adds no rendering of its own.
 
 import { execFile } from "node:child_process";
-import { constants, readFileSync } from "node:fs";
+import { constants, existsSync, readFileSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join } from "node:path";
 
@@ -14,6 +14,7 @@ export function loadSchema(name) {
 }
 
 export const exportSchema = loadSchema("export.v1.json");
+export const openSchema = loadSchema("open.v2.json");
 export const errorSchema = loadSchema("error.v1.json");
 
 export const THEMES = exportSchema.properties.theme.enum;
@@ -144,6 +145,32 @@ export function buildExportArguments(input) {
   return { args };
 }
 
+/**
+ * Checks the tool's arguments and builds the CLI's. Returns `{ args }` or `{ error }`.
+ *
+ * No `folder`: the launch build's `marsdawn open --folder` answers with an error dialog in the
+ * app (mars-dawn#165); folders return in app 1.1, once the site publishes open.v3.json for them.
+ */
+export function buildOpenArguments(input, { fileExists = (path) => existsSync(path) } = {}) {
+  const { path, line, background } = input ?? {};
+  if (typeof path !== "string" || !isAbsolute(path)) {
+    return { error: "`path` must be an absolute path, such as /Users/me/notes/plan.md." };
+  }
+  if (!fileExists(path)) {
+    return { error: `No such file: ${path}` };
+  }
+  if (line !== undefined && (!Number.isInteger(line) || line < 1)) {
+    return { error: "`line` must be an integer of 1 or more." };
+  }
+  const target = line === undefined ? path : `${path}:${line}`;
+  const args = ["open", target, "--json"];
+  if (background !== undefined) {
+    if (typeof background !== "boolean") return { error: "`background` must be true or false." };
+    if (background) args.push("--background");
+  }
+  return { args };
+}
+
 function lastJSONLine(stdout) {
   const line = stdout.split("\n").map((part) => part.trim()).filter(Boolean).at(-1);
   if (line === undefined) return undefined;
@@ -193,14 +220,48 @@ export function interpretExport(result) {
 }
 
 /**
- * The export tool, bound to one way of finding `marsdawn`. The located path and its version
- * check are cached after the first success, so a missing tool is looked for again next call.
+ * One entry of `open.v2.json`'s `opened`, as a path and the line it was asked to land on. Also
+ * accepts a bare string (open.v1.json's shape), which costs nothing and reads the same either way.
  */
-export function createExporter({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
+function openedEntry(entry) {
+  if (typeof entry === "string") return { path: entry, line: undefined };
+  return { path: entry?.path, line: entry?.line };
+}
+
+/** Turns one run of `marsdawn open --json` into a tool result. */
+export function interpretOpen(result) {
+  if (result.spawnError) return toolError(`marsdawn couldn't be started: ${result.spawnError}`);
+  if (result.timedOutAfterMs) {
+    return toolError(`marsdawn didn't finish within ${result.timedOutAfterMs / 1000} seconds and was stopped.`);
+  }
+  if (result.overflowBytes) {
+    return toolError(`marsdawn printed more than ${result.overflowBytes} bytes, which isn't a --json result.`);
+  }
+
+  const json = lastJSONLine(result.stdout);
+  if (result.exitCode === 0) {
+    const complete = json?.ok === true && openSchema.required.every((key) => key in json);
+    if (!complete) return unexpected("succeeded but didn't print a --json result", result);
+    const { path, line } = openedEntry(json.opened[0]);
+    const text = line === undefined ? `Opened ${path} in MarsDawn.` : `Opened ${path} at line ${line} in MarsDawn.`;
+    return { content: [{ type: "text", text }], structuredContent: json };
+  }
+  if (json?.ok === false && errorSchema.properties.error.enum.includes(json.error)) {
+    const next = NEXT_STEPS[json.error];
+    return toolError(`${json.message} ${next}\n${JSON.stringify(json)}`);
+  }
+  return unexpected("failed", result);
+}
+
+/**
+ * Locates and version-checks `marsdawn` once, caching the result after success so a missing tool
+ * is looked for again next call. Shared by `createExporter` and `createOpener`.
+ */
+function createLocator({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
   let located;
   const minimum = parseVersion(MINIMUM_VERSION);
 
-  async function locateChecked() {
+  return async function locateChecked() {
     if (located) return located;
     const found = await locateMarsdawn({ configuredPath, env, fallbacks });
     if (found.error) return found;
@@ -216,13 +277,35 @@ export function createExporter({ configuredPath, env = process.env, fallbacks, t
     }
     located = found;
     return located;
-  }
+  };
+}
 
+/**
+ * The export tool, bound to one way of finding `marsdawn`. The located path and its version
+ * check are cached after the first success, so a missing tool is looked for again next call.
+ */
+export function createExporter({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
+  const locateChecked = createLocator({ configuredPath, env, fallbacks, timeoutMs, maxBytes });
   return async function exportMarkdown(input) {
     const built = buildExportArguments(input);
     if (built.error) return toolError(built.error);
     const found = await locateChecked();
     if (found.error) return toolError(found.error);
     return interpretExport(await runFile(found.path, built.args, { env, timeoutMs, maxBytes }));
+  };
+}
+
+/**
+ * The open tool, bound to one way of finding `marsdawn`. The located path and its version check
+ * are cached after the first success, so a missing tool is looked for again next call.
+ */
+export function createOpener({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
+  const locateChecked = createLocator({ configuredPath, env, fallbacks, timeoutMs, maxBytes });
+  return async function openInMarsdawn(input) {
+    const built = buildOpenArguments(input);
+    if (built.error) return toolError(built.error);
+    const found = await locateChecked();
+    if (found.error) return toolError(found.error);
+    return interpretOpen(await runFile(found.path, built.args, { env, timeoutMs, maxBytes }));
   };
 }

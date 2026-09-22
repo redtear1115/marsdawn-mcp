@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 
 const base = "https://marsdawn.southern-light.dev/schemas/cli/";
-const names = ["export.v1.json", "error.v1.json"];
+const names = ["export.v1.json", "open.v2.json", "error.v1.json"];
 
 let drifted = 0;
 for (const name of names) {

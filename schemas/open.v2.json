@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marsdawn.southern-light.dev/schemas/cli/open.v2.json",
+  "title": "marsdawn open --json: success",
+  "description": "Printed on stdout as one line when `marsdawn open --json` succeeds (exit code 0). marsdawn 0.3.0 and later.",
+  "type": "object",
+  "required": [
+    "ok",
+    "opened",
+    "app"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "opened": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute path of the file that was opened."
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 999999999,
+            "description": "The line MarsDawn was asked to land on. Present only when one was asked for."
+          }
+        }
+      },
+      "description": "The files that were opened, in the order given."
+    },
+    "app": {
+      "type": "string",
+      "description": "Path of the MarsDawn app that opened them."
+    }
+  }
+}
