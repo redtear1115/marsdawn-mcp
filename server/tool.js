@@ -27,6 +27,7 @@ export const exportTool = {
     `Needs marsdawn ${MINIMUM_VERSION} or later (\`brew install redtear1115/tap/marsdawn\`).`,
     "Writes the PDF beside the input unless `output` is given, and won't replace an existing PDF",
     "unless `force` is true. Web images are left out unless `allowRemoteImages` is true.",
+    "It reads and writes only inside the folders the user allowed, and refuses anything outside them.",
   ].join(" "),
   inputSchema: {
     type: "object",
@@ -35,11 +36,13 @@ export const exportTool = {
     properties: {
       input: {
         type: "string",
-        description: "Absolute path of the Markdown file to export.",
+        description:
+          "Absolute path of the Markdown file to export, inside an allowed folder; a plain absolute path without `.` or `..` components.",
       },
       output: {
         type: "string",
-        description: "Absolute path to write the PDF to. Defaults to the input path with a .pdf extension.",
+        description:
+          "Absolute path to write the PDF to, inside an allowed folder; a plain absolute path without `.` or `..` components, and it must end in .pdf. Defaults to the input path with a .pdf extension.",
       },
       theme: {
         type: "string",
@@ -81,6 +84,7 @@ export const openTool = {
     "the user should be sent to a different line.",
     "`background` opens the file without bringing MarsDawn to the front, so the window the user is",
     "already working in keeps focus.",
+    "It opens only files inside the folders the user allowed, and refuses anything outside them.",
   ].join(" "),
   inputSchema: {
     type: "object",
@@ -89,7 +93,8 @@ export const openTool = {
     properties: {
       path: {
         type: "string",
-        description: "Absolute path of the Markdown file to open. Must be a file, not a folder.",
+        description:
+          "Absolute path of the Markdown file to open, inside an allowed folder; a plain absolute path without `.` or `..` components. Must be a file, not a folder.",
       },
       line: {
         type: "integer",

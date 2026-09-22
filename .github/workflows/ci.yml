@@ -55,7 +55,7 @@ jobs:
       - name: The bundle holds the server and nothing from test/ or scripts/
         run: |
           unzip -Z1 marsdawn.mcpb | grep -v '^node_modules/' | LC_ALL=C sort | tee bundle-files.txt
-          diff <(printf '%s\n' LICENSE README.md manifest.json package.json schemas/error.v1.json schemas/export.v1.json schemas/open.v2.json server/index.js server/marsdawn.js server/tool.js) bundle-files.txt
+          diff <(printf '%s\n' LICENSE README.md icon.png manifest.json package.json schemas/error.v1.json schemas/export.v1.json schemas/open.v2.json server/allowed.js server/index.js server/marsdawn.js server/tool.js) bundle-files.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: marsdawn.mcpb
