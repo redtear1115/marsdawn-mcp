@@ -1,6 +1,6 @@
 {
   "name": "marsdawn-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "MCP server that exports Markdown to PDF on macOS with the marsdawn CLI",
   "license": "Apache-2.0",
