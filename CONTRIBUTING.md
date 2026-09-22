@@ -44,9 +44,10 @@ never by editing them here.
 `release.yml` is `workflow_dispatch` only (write access to the repo is required to dispatch it, so
 fork PRs can never reach it), with `concurrency: release` so only one run goes at a time. It has
 three jobs: `build` (packs and smoke-tests, read-only), `publish` (drafts, verifies and publishes
-the GitHub release, then stamps — the only job with write access), and `stamp` (the `stamp_only`
-recovery job, below). Both `publish`'s stamp step and job `stamp` run no `npm`, `npx`, `brew` or
-`pack.sh` — everything they act on was already built and verified by job `build`.
+the GitHub release, then stamps), and `stamp` (the `stamp_only` recovery job, below). `publish` and
+`stamp` are the two jobs with write access; `build` is read-only. Both `publish`'s stamp step and
+job `stamp` run no `npm`, `npx`, `brew` or `pack.sh` — everything they act on was already built and
+verified by job `build`.
 
 1. Merge a version-bump PR (package.json, package-lock.json, manifest.json and server.json all
    move to the new version; server.json's `fileSha256` is left as the previous release's — it's

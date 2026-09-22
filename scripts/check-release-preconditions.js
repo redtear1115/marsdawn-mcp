@@ -63,12 +63,16 @@ export async function checkReleasePreconditions({
   const fields = {
     "package.json": packageJson.version,
     "package-lock.json": packageLock.version,
+    // npm writes the same version in two places in lockfileVersion 3: the top-level `version`
+    // (checked above) and the root package entry, `packages[""].version`. They're meant to be
+    // identical, but nothing enforces that on a hand-edited lockfile, so both are checked.
+    "package-lock.json (packages[\"\"])": packageLock.packages?.[""]?.version,
     "manifest.json": manifest.version,
     "server.json": version,
   };
   const disagreeing = Object.entries(fields).filter(([, v]) => v !== version);
   if (disagreeing.length === 0) {
-    pass(`package.json, package-lock.json, manifest.json and server.json all agree on version ${version}`);
+    pass(`package.json, package-lock.json (both version fields), manifest.json and server.json all agree on version ${version}`);
   } else {
     const said = Object.entries(fields)
       .map(([file, v]) => `${file} ${v}`)

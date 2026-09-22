@@ -7,10 +7,10 @@ import { expectedIdentifier } from "../scripts/check-server-json.js";
 const VERSION = "0.2.0";
 const IDENTIFIER = expectedIdentifier(VERSION);
 
-function docs({ version = VERSION, identifier = IDENTIFIER, packageVersion = VERSION } = {}) {
+function docs({ version = VERSION, identifier = IDENTIFIER, packageVersion = VERSION, lockRootVersion = version } = {}) {
   return {
     packageJson: { version },
-    packageLock: { version },
+    packageLock: { version, packages: { "": { name: "marsdawn-mcp", version: lockRootVersion } } },
     manifest: { version },
     server: {
       version,
@@ -60,6 +60,25 @@ test("[control] a planted version mismatch fails, naming each file's version", a
   assert.ok(line, messages.join("\n"));
   assert.match(line, /manifest\.json 9\.9\.9/);
   assert.match(line, /server\.json 0\.2\.0/);
+});
+
+// --- Red control: package-lock.json's root package entry (packages[""].version) disagreeing
+// fails even though the lockfile's own top-level `version` field agrees — npm writes both, and a
+// hand-edited lockfile could drift one without the other. ---
+test("[control] package-lock.json's packages[\"\"].version disagreeing with the top-level version fails", async () => {
+  const { packageJson, packageLock, manifest, server } = docs({ lockRootVersion: "9.9.9" });
+  const { failures, messages } = await checkReleasePreconditions({
+    packageJson,
+    packageLock,
+    manifest,
+    server,
+    token: "x",
+    fetchImpl: clean(),
+  });
+  assert.equal(failures, 1, messages.join("\n"));
+  const line = messages.find((m) => m.startsWith("not ok") && m.includes("versions disagree"));
+  assert.ok(line, messages.join("\n"));
+  assert.match(line, /package-lock\.json \(packages\[""\]\) 9\.9\.9/);
 });
 
 test("[control] packages[0].version disagreeing with server.json's version fails", async () => {
