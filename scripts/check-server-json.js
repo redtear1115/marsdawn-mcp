@@ -12,7 +12,7 @@
 // Usage: node scripts/check-server-json.js [path/to/server.json] [--allow-unreleased]
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -147,6 +147,22 @@ async function main() {
   process.exit(failures === 0 ? 0 : 1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/**
+ * Whether this module is the script node was invoked on, not merely imported (by the tests, for
+ * instance). A plain `import.meta.url === file://${process.argv[1]}` string comparison is wrong
+ * two ways: `import.meta.url` percent-encodes characters like a space, and it (like
+ * `process.argv[1]`) can be reached through a symlink, so either side may or may not be a real
+ * path. Resolving both to their real, decoded filesystem path before comparing avoids both.
+ */
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   await main();
 }

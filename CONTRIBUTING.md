@@ -46,12 +46,15 @@ describes where it's headed):
 
 1. Merge a version-bump PR (package.json, package-lock.json, manifest.json and server.json all
    move to the new version; server.json's `fileSha256` is left as the previous release's — it's
-   corrected in step 3). CI's `server-json` job stays red on `main` between merge and step 3,
-   because it's now checking a version with no release yet, and `--allow-unreleased` only covers
-   pull requests.
+   corrected in step 3). CI's `server-json` job runs `--allow-unreleased` on push to `main` too,
+   so it's green right after the merge (the new version has no release yet, which is exactly what
+   `--allow-unreleased` is for).
 2. From `main`, run **Actions ▸ Release ▸ Run workflow**. It builds, smoke-tests, drafts,
    verifies the asset's hash and publishes the GitHub release, then pushes a branch that stamps
-   server.json's `fileSha256` with the published asset's real hash.
+   server.json's `fileSha256` with the published asset's real hash. Between the release publishing
+   and the stamp PR merging, `server-json` on `main` goes red: the release now exists, so
+   `--allow-unreleased` runs the strict check, and `main`'s `fileSha256` is still the placeholder
+   until step 3. Expected and temporary.
 3. Merge the stamp PR. Before merging it, run the **strict** check by hand (no
    `--allow-unreleased`) against its tree:
 

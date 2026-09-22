@@ -1,8 +1,38 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import { checkServerJson, expectedIdentifier, hashOf, probeRelease } from "../scripts/check-server-json.js";
+
+const scriptSource = readFileSync(new URL("../scripts/check-server-json.js", import.meta.url));
+
+/**
+ * Writes a standalone copy of the script plus a server.json/manifest.json/package.json trio into
+ * `dir`, with an identifier that fails the exact-URL check — so running it needs no network and
+ * is expected to exit 1 with a `not ok` line, purely from the run-directly guard actually firing.
+ */
+function writeGuardFixture(dir) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "check-server-json.js"), scriptSource);
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version: "0.1.0" }));
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ version: "0.1.0" }));
+  writeFileSync(
+    join(dir, "server.json"),
+    JSON.stringify({
+      version: "0.1.0",
+      packages: [{ registryType: "mcpb", identifier: "not-a-release-url", version: "0.1.0", fileSha256: "0".repeat(64) }],
+    }),
+  );
+}
+
+/** Runs the script at `scriptPath` against `serverPath` and returns its exit status and output. */
+function runGuardFixture(scriptPath, serverPath) {
+  return spawnSync(process.execPath, [scriptPath, serverPath], { encoding: "utf8" });
+}
 
 const VERSION = "0.1.0";
 const IDENTIFIER = expectedIdentifier(VERSION);
@@ -246,4 +276,29 @@ test("probeRelease resolves 'released' on 2xx and 'unreleased' on 404, and throw
 test("hashOf hashes the downloaded bytes and throws on a bad status", async () => {
   assert.equal(await hashOf(IDENTIFIER, { fetchImpl: fetchServing(BYTES) }), SHA);
   await assert.rejects(() => hashOf(IDENTIFIER, { fetchImpl: fetchServing(BYTES, { assetOk: false }) }));
+});
+
+// --- Run-directly guard: `node scripts/check-server-json.js ...` must actually run main() (and
+// so exit non-zero on a planted failure) even when the script's own path, or the directory it's
+// reached through, isn't a plain unencoded, symlink-free path. A guard that compares
+// import.meta.url to process.argv[1] as raw strings gets both of these wrong: import.meta.url
+// percent-encodes a space, and it resolves through a symlink while argv[1] may not. ---
+
+test("[control: run-directly guard] a script path containing a space still runs main()", () => {
+  const dir = mkdtempSync(join(tmpdir(), "csj with space "));
+  writeGuardFixture(dir);
+  const result = runGuardFixture(join(dir, "check-server-json.js"), join(dir, "server.json"));
+  assert.equal(result.status, 1, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  assert.match(result.stderr, /not ok/);
+});
+
+test("[control: run-directly guard] a script path reached through a symlink still runs main()", () => {
+  const real = mkdtempSync(join(tmpdir(), "csj-real-"));
+  writeGuardFixture(real);
+  const linkParent = mkdtempSync(join(tmpdir(), "csj-link-"));
+  const link = join(linkParent, "via-symlink");
+  symlinkSync(real, link);
+  const result = runGuardFixture(join(link, "check-server-json.js"), join(link, "server.json"));
+  assert.equal(result.status, 1, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  assert.match(result.stderr, /not ok/);
 });
