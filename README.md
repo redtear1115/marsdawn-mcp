@@ -7,7 +7,9 @@ channel for clients that have no shell of their own; where a shell is available,
 `marsdawn` directly is simpler.
 
 The first release, [0.1.0](https://github.com/redtear1115/marsdawn-mcp/releases/tag/v0.1.0), is
-an MCP Bundle, `marsdawn.mcpb`, attached to the release. It's listed in the
+an MCP Bundle, `marsdawn.mcpb`, attached to the release.
+
+0.2.1, the latest release, is listed in the
 [MCP Registry](https://registry.modelcontextprotocol.io/v0/servers/dev.southern-light.mcp%2Fmarsdawn/versions/latest)
 as `dev.southern-light.mcp/marsdawn`.
 
