@@ -331,9 +331,17 @@ test("U7: duplicates collapse, however they are spelled", () => {
 // --- U8: the client's roots --------------------------------------------------------------------
 
 test("U8: a file: root becomes a directory, and a root on another host is ignored", () => {
-  const fs = fakeFs({ realpath: { "/allowed": "/allowed" }, lstat: { "/allowed": "dir" } });
+  // The table also holds what a naive `file://` strip of the hostile URI would look up (`evil/etc`
+  // and `/etc`), as directories: only real URL validation, which throws before any lookup, keeps
+  // that root out. So this row goes red if `fileURLToPath` is replaced by a string strip.
+  const fs = fakeFs({
+    realpath: { "/allowed": "/allowed", "evil/etc": "/etc", "/etc": "/etc" },
+    lstat: { "/allowed": "dir", "/etc": "dir" },
+  });
   assert.deepEqual(rootsToDirectories([{ uri: "file:///allowed" }], fs), ["/allowed"]);
+  fs.calls.length = 0;
   assert.deepEqual(rootsToDirectories([{ uri: "file://evil/etc" }], fs), []);
+  assert.deepEqual(fs.calls, [], "a root on another host is refused by the URL, not by a lookup");
 });
 
 test("U8: file:// and file:/// both mean /, which is dropped", () => {
@@ -342,8 +350,11 @@ test("U8: file:// and file:/// both mean /, which is dropped", () => {
 });
 
 test("U8: an encoded NUL in a root is dropped", () => {
-  const fs = fakeFs({ realpath: { "/allowed": "/allowed" } });
+  // `fileURLToPath` decodes %00 to a NUL, which the filesystem refuses. The literal `/a%00b` is in
+  // the table as a directory, so a string strip that skips the decoding would accept the root.
+  const fs = fakeFs({ realpath: { "/allowed": "/allowed", "/a%00b": "/a%00b" }, lstat: { "/a%00b": "dir" } });
   assert.deepEqual(rootsToDirectories([{ uri: "file:///a%00b" }], fs), []);
+  assert.deepEqual(fs.calls, ["realpath /a\0b"], "the decoded NUL reached the filesystem once and was refused");
 });
 
 test("U8: a root that names a file refuses everything, since no parent is inside a file", () => {
