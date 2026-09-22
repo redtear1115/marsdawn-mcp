@@ -122,8 +122,12 @@ test("S10: the manifest asks the host for the allowed folders and passes them on
   assert.equal(manifest.server.mcp_config.args[1], "${user_config.allowed_directories}");
   assert.equal(setting.type, "directory");
   assert.equal(setting.multiple, true);
-  assert.equal(setting.required, true);
-  assert.deepEqual(setting.default, ["${DOCUMENTS}"]);
+  // Not required and no default, on purpose: the resolver Claude Desktop shares
+  // (@anthropic-ai/mcpb shared/config.js) skips a required setting until the user saves a value,
+  // defaults included, and never expands ${DOCUMENTS}-style placeholders inside a folder default.
+  // Either would leave upgraded users with no server or a literal placeholder (measured, 2026-09-23).
+  assert.equal(setting.required, false);
+  assert.equal("default" in setting, false, "a folder default is inert in Claude Desktop; do not add one");
   assert.equal(typeof setting.description, "string");
 });
 

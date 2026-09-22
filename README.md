@@ -53,8 +53,12 @@ missing MarsDawn app (`open_in_marsdawn` only) comes back the same way, not as a
 Both tools work only inside folders you allow. There are two ways to name one, and the server uses
 both together:
 
-- **The extension's settings.** "Allowed folders" is a required, multi-value setting, `${DOCUMENTS}`
-  by default. Each folder becomes one argument to the server.
+- **The extension's settings.** "Allowed folders" is a multi-value setting with no preset value:
+  add the folders you want, for example your Documents folder, and save. Each folder becomes one
+  argument to the server. Until one is added, every call is refused with a message that says so.
+  (A preset would not help: Claude Desktop does not expand `${DOCUMENTS}`-style placeholders in a
+  folder setting's default, and a required setting keeps the server from starting at all until it
+  is saved.)
 - **MCP roots.** If your client offers the `roots` capability, the server asks it for the current
   roots on each tool call (and caches them only when the client promises to announce changes).
   Roots are the client's claim about your workspace, not something this server controls: the

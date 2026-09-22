@@ -42,9 +42,8 @@
       "type": "directory",
       "title": "Allowed folders",
       "multiple": true,
-      "required": true,
-      "default": ["${DOCUMENTS}"],
-      "description": "Folders the tools may read Markdown from and write PDFs into. Nothing outside them is read or written; inside them, an existing PDF is replaced only when the agent passes force."
+      "required": false,
+      "description": "Folders the tools may read Markdown from and write PDFs into, for example your Documents folder. Until one is added, every call is refused. Nothing outside them is read or written; inside them, an existing PDF is replaced only when the agent passes force."
     },
     "marsdawn_path": {
       "type": "file",
