@@ -135,7 +135,12 @@ try {
     const result = await call(client, { input: stem, force: true });
     assert.equal(result.isError, undefined, result.content?.[0]?.text);
     const expected = defaultOutputFor(stem);
-    assert.equal(result.structuredContent.output, expected, `the default output for ${name}`);
+    // The CLI reports the path it was given after Foundation's standardizedFileURL, which drops a
+    // leading /private once the file exists (notes. lands on notes.pdf, which the notes case just
+    // wrote), so the same file can come back spelled /var/… instead of /private/var/…. The claim
+    // is "the PDF is where the server said", so compare what the two spellings resolve to.
+    const reported = result.structuredContent.output;
+    assert.equal(realpathSync.native(reported), expected, `the default output for ${name} (reported ${reported})`);
     assert.ok(statSync(expected).size > 0, `${expected} is on disk`);
     step(`${name} exported to ${expected}`);
   }
