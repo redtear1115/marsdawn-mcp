@@ -68,11 +68,16 @@ jobs:
 
   server-json:
     # mcp-publisher validate checks the format only; this downloads each mcpb package and
-    # checks it hashes to fileSha256, so a wrong hash can't reach the registry.
+    # checks it hashes to fileSha256, so a wrong hash can't reach the registry. A version-bump PR
+    # is red until its release exists, so this job passes --allow-unreleased: it skips the
+    # download and hash only when a read of the release API says that version isn't published
+    # yet, and still fails strict otherwise.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - run: node scripts/check-server-json.js
+      - run: node scripts/check-server-json.js --allow-unreleased
+        env:
+          GH_TOKEN: ${{ github.token }}
