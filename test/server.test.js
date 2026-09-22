@@ -158,6 +158,28 @@ test("open_in_marsdawn: a relative path is refused before the CLI runs", async (
   assert.match(result.content[0].text, /absolute path/);
 });
 
+test("open_in_marsdawn: a folder is refused before the CLI runs", async (t) => {
+  // Kit 0.5.1 treats a directory argument as a folder to show in the sidebar, which the launch
+  // app answers with an error dialog (mars-dawn#165), and whose --json result violates open.v2.json.
+  const client = await connect({ MARSDAWN_PATH: join(fixtures, "marsdawn"), FAKE_MARSDAWN_MODE: "success" });
+  t.after(() => client.close());
+  await client.listTools();
+  const directory = mkdtempSync(join(tmpdir(), "marsdawn-mcp-"));
+  const result = await client.callTool({ name: "open_in_marsdawn", arguments: { path: directory } });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /must be a file, not a folder/);
+});
+
+test("open_in_marsdawn: line above the schema's maximum is refused before the CLI runs", async (t) => {
+  const client = await connect({ MARSDAWN_PATH: join(fixtures, "marsdawn"), FAKE_MARSDAWN_MODE: "success" });
+  t.after(() => client.close());
+  await client.listTools();
+  const path = existingFile();
+  const result = await client.callTool({ name: "open_in_marsdawn", arguments: { path, line: 1_000_000_000 } });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /integer between 1 and 999999999/);
+});
+
 test("both tools are listed, and the manifest names exactly them", async (t) => {
   const client = await connect({ MARSDAWN_PATH: join(fixtures, "marsdawn") });
   t.after(() => client.close());

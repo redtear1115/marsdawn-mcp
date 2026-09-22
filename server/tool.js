@@ -1,6 +1,6 @@
 // The tools as MCP clients see them. Enums and output fields come from the vendored schemas.
 
-import { MINIMUM_VERSION, PAPERS, THEMES, exportSchema, openSchema } from "./marsdawn.js";
+import { MAX_LINE, MINIMUM_VERSION, PAPERS, THEMES, exportSchema, openSchema } from "./marsdawn.js";
 
 /**
  * A vendored schema without `$schema`, `$id` and `title`. Clients validate `structuredContent`
@@ -89,11 +89,12 @@ export const openTool = {
     properties: {
       path: {
         type: "string",
-        description: "Absolute path of the Markdown file to open.",
+        description: "Absolute path of the Markdown file to open. Must be a file, not a folder.",
       },
       line: {
         type: "integer",
         minimum: 1,
+        maximum: MAX_LINE,
         description: "Line to land on.",
       },
       background: {

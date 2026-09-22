@@ -37,8 +37,8 @@ opens follows that file's later edits by itself, without being called again.
 
 | Argument | |
 |---|---|
-| `path` | Absolute path of the Markdown file. Required. |
-| `line` | Line to land on, 1 or more. |
+| `path` | Absolute path of an existing Markdown file, not a folder. Required. |
+| `line` | Line to land on, 1 to 999999999. |
 | `background` | Open without bringing MarsDawn to the front. |
 
 No `folder` yet: the launch build's `marsdawn open --folder` answers with an error dialog in the

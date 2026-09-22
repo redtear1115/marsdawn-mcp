@@ -5,7 +5,9 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  MAX_LINE,
   NEXT_STEPS,
+  OPEN_NEXT_STEPS,
   buildExportArguments,
   buildOpenArguments,
   configuredPathFrom,
@@ -42,8 +44,17 @@ function existingFile() {
   return path;
 }
 
+/** A real directory on disk, for the "path must be a file, not a folder" checks. */
+function existingDirectory() {
+  return mkdtempSync(join(tmpdir(), "marsdawn-mcp-"));
+}
+
 test("the exit-code table has a next step for every error kind the schema allows", () => {
   assert.deepEqual(Object.keys(NEXT_STEPS).sort(), [...errorSchema.properties.error.enum].sort());
+});
+
+test("open's exit-code table also has a next step for every error kind the schema allows", () => {
+  assert.deepEqual(Object.keys(OPEN_NEXT_STEPS).sort(), [...errorSchema.properties.error.enum].sort());
 });
 
 test("arguments: an absolute input becomes `export <input> --json`", () => {
@@ -284,16 +295,36 @@ test("open arguments: a path that doesn't exist is refused", () => {
   assert.match(buildOpenArguments({ path: missing }).error, /No such file/);
 });
 
-test("open arguments: a path that doesn't exist is checked with the injected fileExists", () => {
-  const result = buildOpenArguments({ path: "/Users/me/notes/plan.md" }, { fileExists: () => true });
+test("open arguments: a path that doesn't exist is checked with the injected readStat", () => {
+  const result = buildOpenArguments(
+    { path: "/Users/me/notes/plan.md" },
+    { readStat: () => ({ isFile: () => true }) },
+  );
   assert.deepEqual(result.args, ["open", "/Users/me/notes/plan.md", "--json"]);
 });
 
-test("open arguments: line must be an integer of 1 or more", () => {
+test("open arguments: a folder is refused, not sent to the CLI", () => {
+  const directory = existingDirectory();
+  const { error } = buildOpenArguments({ path: directory });
+  assert.match(error, /`path` must be a file, not a folder/);
+  assert.match(error, /MarsDawn 1\.1/);
+});
+
+test("open: a folder is refused before the CLI is even run", async () => {
+  const directory = existingDirectory();
+  const log = join(mkdtempSync(join(tmpdir(), "marsdawn-mcp-")), "argv");
+  const result = await fakeOpener("success", { FAKE_MARSDAWN_ARGV: log })({ path: directory });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /must be a file, not a folder/);
+  assert.throws(() => readFileSync(log), { code: "ENOENT" }, "the fixture (the CLI stand-in) must not have run");
+});
+
+test("open arguments: line must be an integer between 1 and MAX_LINE", () => {
   const path = existingFile();
-  for (const bad of [0, -1, 1.5, "1", true]) {
-    assert.match(buildOpenArguments({ path, line: bad }).error, /integer of 1 or more/, `line ${String(bad)}`);
+  for (const bad of [0, -1, 1.5, "1", true, MAX_LINE + 1]) {
+    assert.match(buildOpenArguments({ path, line: bad }).error, /integer between 1 and 999999999/, `line ${String(bad)}`);
   }
+  assert.equal(buildOpenArguments({ path, line: MAX_LINE }).error, undefined, "the maximum itself is allowed");
 });
 
 test("open arguments: background must be a boolean", () => {
@@ -341,11 +372,13 @@ test("open: exit code 3 becomes a clear \"not installed\" result, not a thrown e
   assert.match(result.content[0].text, /"error":"app_not_installed"/);
 });
 
-test("open: exit code 2 (input not found) is a clear result", async () => {
+test("open: exit code 2 (input not found) is a clear result, with a next step naming `path`", async () => {
   const path = existingFile();
   const result = await fakeOpener("input_not_found")({ path });
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, new RegExp(`No such file: ${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(result.content[0].text, /Check that `path` is the absolute path/);
+  assert.doesNotMatch(result.content[0].text, /Check that `input`/);
 });
 
 test("open: a marsdawn older than 0.5.0 is refused before opening anything", async () => {
