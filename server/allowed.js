@@ -127,12 +127,20 @@ export function checkReadable(path, allowed, fs = nodeFs, { name = "input", fold
   }
   if (!isInsideAny(parent, allowed)) return { error: outsideError(name, allowed) };
 
-  // R3: the file itself, so a symlink that leaves the tree is refused.
+  // R3: the file itself, so a symlink that leaves the tree is refused. realpath says ENOENT both
+  // for a missing file and for a symlink whose target can't be resolved; only a missing plain
+  // entry goes on to the CLI. A dangling symlink gets the outside refusal, word for word, so the
+  // answer says nothing about where it points or whether anything is there.
   let resolved;
   try {
     resolved = fs.realpath(path);
   } catch (error) {
-    if (error?.code === "ENOENT") return { path };
+    if (error?.code !== "ENOENT") return { error: outsideError(name, allowed) };
+    try {
+      fs.lstat(join(parent, basename(path)));
+    } catch (entryError) {
+      if (entryError?.code === "ENOENT") return { path };
+    }
     return { error: outsideError(name, allowed) };
   }
   if (!isInsideAny(resolved, allowed)) return { error: outsideError(name, allowed) };

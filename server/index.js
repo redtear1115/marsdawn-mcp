@@ -34,12 +34,18 @@ const server = new Server({ name: "marsdawn", version }, { capabilities: { tools
  * The client's roots, asked for on the first tool call that needs them and never inside
  * `initialize`. Cached only when the client said it will announce changes; an error, a timeout or
  * a result the SDK won't parse means "no roots" for that call, never "everything".
+ *
+ * `generation` counts the client's change announcements. An answer, or a failure, is remembered
+ * only if no announcement arrived while it was pending: one that did makes the answer describe
+ * roots from before the change, so it serves the call that asked and the next call asks again.
  */
 function createRootsProvider(connection) {
   let cached;
   let failedAt;
+  let generation = 0;
   return {
     forget() {
+      generation += 1;
       cached = undefined;
       failedAt = undefined;
     },
@@ -48,15 +54,16 @@ function createRootsProvider(connection) {
       if (!roots) return [];
       if (cached) return cached;
       if (failedAt !== undefined && Date.now() - failedAt < ROOTS_FAILURE_MS) return [];
+      const askedIn = generation;
       let result;
       try {
         result = await connection.listRoots(undefined, { timeout: ROOTS_TIMEOUT_MS });
       } catch {
-        failedAt = Date.now();
+        if (askedIn === generation) failedAt = Date.now();
         return [];
       }
       const directories = rootsToDirectories(result?.roots);
-      if (roots.listChanged === true) cached = directories;
+      if (roots.listChanged === true && askedIn === generation) cached = directories;
       return directories;
     },
   };

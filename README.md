@@ -88,7 +88,8 @@ The rules, applied before `marsdawn` is ever started:
   so neither tool says what is there. That message does tell the model your folder paths; a
   deliberate trade, so an agent can pick a valid path instead of retrying blindly.
 - A file that doesn't exist *inside* an allowed folder is passed through, so the CLI's own
-  `input_not_found` still comes back with its next step.
+  `input_not_found` still comes back with its next step. A symlink there whose target can't be
+  resolved is not a missing file: it gets the same refusal as one that leads outside.
 
 What this does not do: inside an allowed folder, `force` still replaces an existing PDF, exactly as
 on the command line. And if the destination is a hard link, the PDF replaces the directory entry
