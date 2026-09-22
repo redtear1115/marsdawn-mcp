@@ -12,11 +12,44 @@ if (args[0] === "--version") {
   process.exit(0);
 }
 
+const command = args[0];
 const input = args[1];
 const failure = (code, error, message) => {
   process.stdout.write(`${JSON.stringify({ ok: false, error, message })}\n`);
   process.exit(code);
 };
+
+if (command === "open") {
+  switch (process.env.FAKE_MARSDAWN_MODE ?? "success") {
+    case "success": {
+      // open.v2.json's shape, matching kit 0.5.1: opened is [{path, line?}], not [path].
+      const [path, lineText] = input.split(":");
+      const opened = lineText === undefined ? [{ path }] : [{ path, line: Number(lineText) }];
+      process.stdout.write(`${JSON.stringify({ ok: true, opened, app: "/Applications/MarsDawn.app" })}\n`);
+      process.exit(0);
+    }
+    case "legacy_v1_shape": {
+      // Deliberately open.v1.json's old shape (opened as bare path strings), so a test can prove
+      // the client's schema validation catches it (see the "control" test in server.test.js).
+      const [path] = input.split(":");
+      process.stdout.write(`${JSON.stringify({ ok: true, opened: [path], app: "/Applications/MarsDawn.app" })}\n`);
+      process.exit(0);
+    }
+    case "input_not_found":
+      failure(2, "input_not_found", `No such file: ${input}`);
+      break;
+    case "app_not_installed":
+      failure(
+        3,
+        "app_not_installed",
+        "MarsDawn is not installed. open needs the app, which is not publicly available yet; export works without it.",
+      );
+      break;
+    default:
+      process.stderr.write(`unknown FAKE_MARSDAWN_MODE ${process.env.FAKE_MARSDAWN_MODE}\n`);
+      process.exit(70);
+  }
+}
 
 switch (process.env.FAKE_MARSDAWN_MODE ?? "success") {
   case "success": {

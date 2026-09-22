@@ -2,7 +2,7 @@
 // Everything the tool reports comes from the CLI; this module adds no rendering of its own.
 
 import { execFile } from "node:child_process";
-import { constants, readFileSync } from "node:fs";
+import { constants, readFileSync, statSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join } from "node:path";
 
@@ -14,6 +14,7 @@ export function loadSchema(name) {
 }
 
 export const exportSchema = loadSchema("export.v1.json");
+export const openSchema = loadSchema("open.v2.json");
 export const errorSchema = loadSchema("error.v1.json");
 
 export const THEMES = exportSchema.properties.theme.enum;
@@ -31,13 +32,22 @@ export const MAX_OUTPUT_BYTES = 1024 * 1024;
 export const INSTALL_HINT =
   "Install it with `brew install redtear1115/tap/marsdawn`, or set its path in the extension's settings.";
 
-/** What to do next for each failure kind in error.v1.json. */
+/** What to do next for each failure kind in error.v1.json, for export_markdown_to_pdf. */
 export const NEXT_STEPS = {
   input_not_found: "Check that `input` is the absolute path of an existing Markdown file saved as UTF-8.",
   app_not_installed: "Only `marsdawn open` needs the MarsDawn app; export works without it.",
   output_exists: "Pass `force: true` to replace it, or choose another `output` path.",
   export_failed: "Nothing was written. The message says why rendering failed.",
 };
+
+/** The same table, but naming `path` (open_in_marsdawn's own argument) instead of `input`. */
+export const OPEN_NEXT_STEPS = {
+  ...NEXT_STEPS,
+  input_not_found: "Check that `path` is the absolute path of an existing Markdown file saved as UTF-8.",
+};
+
+/** The largest line kit's RevealRequest.lineRange, and open.v2.json's `line`, allow. */
+export const MAX_LINE = 999_999_999;
 
 async function isExecutableFile(path) {
   try {
@@ -144,6 +154,50 @@ export function buildExportArguments(input) {
   return { args };
 }
 
+/** `path`'s filesystem `Stats`, or `undefined` when nothing is there. The default for `readStat`. */
+function statOrUndefined(path) {
+  try {
+    return statSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Checks the tool's arguments and builds the CLI's. Returns `{ args }` or `{ error }`.
+ *
+ * `path` must be a regular file, not a folder: kit 0.5.1 treats a directory argument to `open` as
+ * a folder to show in the sidebar (`resolvedFolders()`), which the launch app answers with an
+ * error dialog (mars-dawn#165) and whose `--json` result (`opened: []`, a `folder` field)
+ * violates open.v2.json besides. No `folder` parameter either, for the same reason: it isn't
+ * supported by the launch build. Both return in app 1.1, once the site publishes open.v3.json.
+ */
+export function buildOpenArguments(input, { readStat = statOrUndefined } = {}) {
+  const { path, line, background } = input ?? {};
+  if (typeof path !== "string" || !isAbsolute(path)) {
+    return { error: "`path` must be an absolute path, such as /Users/me/notes/plan.md." };
+  }
+  const info = readStat(path);
+  if (!info) {
+    return { error: `No such file: ${path}` };
+  }
+  if (!info.isFile()) {
+    return {
+      error: `\`path\` must be a file, not a folder: ${path}. Opening a folder isn't supported yet; it arrives with MarsDawn 1.1.`,
+    };
+  }
+  if (line !== undefined && (!Number.isInteger(line) || line < 1 || line > MAX_LINE)) {
+    return { error: `\`line\` must be an integer between 1 and ${MAX_LINE}.` };
+  }
+  const target = line === undefined ? path : `${path}:${line}`;
+  const args = ["open", target, "--json"];
+  if (background !== undefined) {
+    if (typeof background !== "boolean") return { error: "`background` must be true or false." };
+    if (background) args.push("--background");
+  }
+  return { args };
+}
+
 function lastJSONLine(stdout) {
   const line = stdout.split("\n").map((part) => part.trim()).filter(Boolean).at(-1);
   if (line === undefined) return undefined;
@@ -193,14 +247,48 @@ export function interpretExport(result) {
 }
 
 /**
- * The export tool, bound to one way of finding `marsdawn`. The located path and its version
- * check are cached after the first success, so a missing tool is looked for again next call.
+ * One entry of `open.v2.json`'s `opened`, as a path and the line it was asked to land on. Also
+ * accepts a bare string (open.v1.json's shape), which costs nothing and reads the same either way.
  */
-export function createExporter({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
+function openedEntry(entry) {
+  if (typeof entry === "string") return { path: entry, line: undefined };
+  return { path: entry?.path, line: entry?.line };
+}
+
+/** Turns one run of `marsdawn open --json` into a tool result. */
+export function interpretOpen(result) {
+  if (result.spawnError) return toolError(`marsdawn couldn't be started: ${result.spawnError}`);
+  if (result.timedOutAfterMs) {
+    return toolError(`marsdawn didn't finish within ${result.timedOutAfterMs / 1000} seconds and was stopped.`);
+  }
+  if (result.overflowBytes) {
+    return toolError(`marsdawn printed more than ${result.overflowBytes} bytes, which isn't a --json result.`);
+  }
+
+  const json = lastJSONLine(result.stdout);
+  if (result.exitCode === 0) {
+    const complete = json?.ok === true && openSchema.required.every((key) => key in json);
+    if (!complete) return unexpected("succeeded but didn't print a --json result", result);
+    const { path, line } = openedEntry(json.opened[0]);
+    const text = line === undefined ? `Opened ${path} in MarsDawn.` : `Opened ${path} at line ${line} in MarsDawn.`;
+    return { content: [{ type: "text", text }], structuredContent: json };
+  }
+  if (json?.ok === false && errorSchema.properties.error.enum.includes(json.error)) {
+    const next = OPEN_NEXT_STEPS[json.error];
+    return toolError(`${json.message} ${next}\n${JSON.stringify(json)}`);
+  }
+  return unexpected("failed", result);
+}
+
+/**
+ * Locates and version-checks `marsdawn` once, caching the result after success so a missing tool
+ * is looked for again next call. Shared by `createExporter` and `createOpener`.
+ */
+function createLocator({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
   let located;
   const minimum = parseVersion(MINIMUM_VERSION);
 
-  async function locateChecked() {
+  return async function locateChecked() {
     if (located) return located;
     const found = await locateMarsdawn({ configuredPath, env, fallbacks });
     if (found.error) return found;
@@ -216,13 +304,35 @@ export function createExporter({ configuredPath, env = process.env, fallbacks, t
     }
     located = found;
     return located;
-  }
+  };
+}
 
+/**
+ * The export tool, bound to one way of finding `marsdawn`. The located path and its version
+ * check are cached after the first success, so a missing tool is looked for again next call.
+ */
+export function createExporter({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
+  const locateChecked = createLocator({ configuredPath, env, fallbacks, timeoutMs, maxBytes });
   return async function exportMarkdown(input) {
     const built = buildExportArguments(input);
     if (built.error) return toolError(built.error);
     const found = await locateChecked();
     if (found.error) return toolError(found.error);
     return interpretExport(await runFile(found.path, built.args, { env, timeoutMs, maxBytes }));
+  };
+}
+
+/**
+ * The open tool, bound to one way of finding `marsdawn`. The located path and its version check
+ * are cached after the first success, so a missing tool is looked for again next call.
+ */
+export function createOpener({ configuredPath, env = process.env, fallbacks, timeoutMs, maxBytes } = {}) {
+  const locateChecked = createLocator({ configuredPath, env, fallbacks, timeoutMs, maxBytes });
+  return async function openInMarsdawn(input) {
+    const built = buildOpenArguments(input);
+    if (built.error) return toolError(built.error);
+    const found = await locateChecked();
+    if (found.error) return toolError(found.error);
+    return interpretOpen(await runFile(found.path, built.args, { env, timeoutMs, maxBytes }));
   };
 }

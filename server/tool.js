@@ -1,16 +1,21 @@
-// The tool as MCP clients see it. Enums and output fields come from the vendored schemas.
+// The tools as MCP clients see them. Enums and output fields come from the vendored schemas.
 
-import { MINIMUM_VERSION, PAPERS, THEMES, exportSchema } from "./marsdawn.js";
+import { MAX_LINE, MINIMUM_VERSION, PAPERS, THEMES, exportSchema, openSchema } from "./marsdawn.js";
 
 /**
- * export.v1.json without `$schema`, `$id` and `title`. Clients validate `structuredContent`
+ * A vendored schema without `$schema`, `$id` and `title`. Clients validate `structuredContent`
  * with their own JSON Schema library; the TypeScript SDK's accepts a 2020-12 `$schema`, but not
  * every client's is known to. The schema uses no keyword newer than draft-07, so dropping the
  * declaration loses nothing.
  */
+function withoutMeta(schema) {
+  const { $schema, $id, title, ...rest } = schema;
+  return rest;
+}
+
+/** export.v1.json without `$schema`, `$id` and `title`. */
 export function outputSchema() {
-  const { $schema, $id, title, ...schema } = exportSchema;
-  return schema;
+  return withoutMeta(exportSchema);
 }
 
 export const exportTool = {
@@ -61,6 +66,48 @@ export const exportTool = {
     readOnlyHint: false,
     destructiveHint: true,
     idempotentHint: false,
+    openWorldHint: false,
+  },
+};
+
+export const openTool = {
+  name: "open_in_marsdawn",
+  title: "Open in MarsDawn",
+  description: [
+    "Open a Markdown file in the MarsDawn app on this Mac for the user to review, with the marsdawn",
+    "command-line tool. Needs the MarsDawn app, which is not publicly available yet.",
+    "Call this once per file: the window stays open and follows the file's later edits by itself,",
+    "so there's no need to call it again after every change, only when a new file needs review or",
+    "the user should be sent to a different line.",
+    "`background` opens the file without bringing MarsDawn to the front, so the window the user is",
+    "already working in keeps focus.",
+  ].join(" "),
+  inputSchema: {
+    type: "object",
+    required: ["path"],
+    additionalProperties: false,
+    properties: {
+      path: {
+        type: "string",
+        description: "Absolute path of the Markdown file to open. Must be a file, not a folder.",
+      },
+      line: {
+        type: "integer",
+        minimum: 1,
+        maximum: MAX_LINE,
+        description: "Line to land on.",
+      },
+      background: {
+        type: "boolean",
+        description: "Open without bringing MarsDawn to the front.",
+      },
+    },
+  },
+  outputSchema: withoutMeta(openSchema),
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
     openWorldHint: false,
   },
 };
