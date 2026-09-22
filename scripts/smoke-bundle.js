@@ -1,20 +1,29 @@
 // Unpacks a built marsdawn.mcpb and drives its server over stdio against a real marsdawn.
 // Usage: node scripts/smoke-bundle.js path/to/marsdawn.mcpb path/to/marsdawn
 //
+// The server is started from the manifest's own `mcp_config.args`, with `${__dirname}` and
+// `${user_config.allowed_directories}` filled in the way a bundle host fills them, so the wiring
+// the host relies on is exercised rather than assumed.
+//
 // Checks, in order, on one Markdown file with a Mermaid diagram:
 //   1. an export succeeds, the PDF is on disk, and structuredContent passes the client's
 //      outputSchema validation;
 //   2. the same export again is refused with output_exists, and the PDF is left alone;
 //   3. with force it succeeds;
 //   4. a relative path is refused;
-//   5. with MARSDAWN_PATH unset and a PATH that doesn't contain marsdawn, the server still
+//   5. an `output` outside the allowed folder is refused and nothing is written there;
+//   6. an `input` outside the allowed folder is refused;
+//   7. for each odd file name, the default output is the one the server's own defaultOutputFor
+//      names, and the real CLI wrote the PDF there;
+//   8. with MARSDAWN_PATH unset and a PATH that doesn't contain marsdawn, the server still
 //      finds it through the Homebrew prefixes (only when marsdawn lives in one of them).
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -26,13 +35,31 @@ if (!bundleArgument || !marsdawnArgument) {
 const bundle = resolve(bundleArgument);
 const marsdawn = resolve(marsdawnArgument);
 
-const work = mkdtempSync(join(tmpdir(), "marsdawn-smoke-"));
+// Realpath'd, because that is the spelling the server compares every path against.
+const work = realpathSync.native(mkdtempSync(join(tmpdir(), "marsdawn-smoke-")));
+const outside = realpathSync.native(mkdtempSync(join(tmpdir(), "marsdawn-outside-")));
 const unpacked = join(work, "bundle");
 execFileSync("npx", ["--yes", "@anthropic-ai/mcpb@2.1.2", "unpack", bundle, unpacked], { stdio: "inherit" });
 
 const manifest = JSON.parse(readFileSync(join(unpacked, "manifest.json"), "utf8"));
 const entry = join(unpacked, manifest.server.entry_point);
 assert.ok(existsSync(entry), `the bundle has its entry point, ${manifest.server.entry_point}`);
+
+/** The manifest's `args`, with the substitutions a bundle host makes. `multiple: true` expands. */
+function hostArgs(allowedDirectories) {
+  const args = [];
+  for (const argument of manifest.server.mcp_config.args) {
+    if (argument === "${user_config.allowed_directories}") {
+      args.push(...allowedDirectories);
+      continue;
+    }
+    args.push(argument.replaceAll("${__dirname}", unpacked));
+  }
+  return args;
+}
+
+const serverArgs = hostArgs([work]);
+assert.deepEqual(serverArgs, [entry, work], "the host's argv: the entry point, then each allowed folder");
 
 const input = join(work, "plan.md");
 writeFileSync(
@@ -41,9 +68,17 @@ writeFileSync(
 );
 const pdf = join(work, "plan.pdf");
 
+// The bundle's own rule for where a PDF goes when `output` is absent.
+const { defaultOutputFor } = await import(pathToFileURL(join(unpacked, "server", "allowed.js")).href);
+
 async function connect(env) {
-  // The way the manifest starts it: node <bundle>/server/index.js, env from mcp_config.
-  const transport = new StdioClientTransport({ command: process.execPath, args: [entry], env, stderr: "inherit" });
+  // The way the manifest starts it: node <bundle>/server/index.js <folders>, env from mcp_config.
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: serverArgs,
+    env,
+    stderr: "inherit",
+  });
   const client = new Client({ name: "smoke", version: "0" });
   await client.connect(transport);
   await client.listTools();
@@ -78,6 +113,32 @@ try {
   assert.equal(relative.isError, true);
   assert.match(relative.content[0].text, /absolute path/);
   step("a relative path is refused");
+
+  const escape = join(outside, "escape.pdf");
+  const escaping = await call(client, { input, output: escape, force: true });
+  assert.equal(escaping.isError, true);
+  assert.match(escaping.content[0].text, /`output` must be inside an allowed folder/);
+  assert.equal(existsSync(escape), false, "nothing was written outside the allowed folder");
+  step("an output outside the allowed folder is refused, and nothing is written there");
+
+  const foreignInput = join(outside, "plan.md");
+  writeFileSync(foreignInput, "# Plan\n");
+  const foreign = await call(client, { input: foreignInput });
+  assert.equal(foreign.isError, true);
+  assert.match(foreign.content[0].text, /`input` must be inside an allowed folder/);
+  assert.equal(existsSync(join(outside, "plan.pdf")), false);
+  step("an input outside the allowed folder is refused");
+
+  for (const name of ["notes", ".hidden", "a.b.md", "notes."]) {
+    const stem = join(work, name);
+    writeFileSync(stem, "# Stem\n\nA line of text.\n");
+    const result = await call(client, { input: stem, force: true });
+    assert.equal(result.isError, undefined, result.content?.[0]?.text);
+    const expected = defaultOutputFor(stem);
+    assert.equal(result.structuredContent.output, expected, `the default output for ${name}`);
+    assert.ok(statSync(expected).size > 0, `${expected} is on disk`);
+    step(`${name} exported to ${expected}`);
+  }
 } finally {
   await client.close();
 }
