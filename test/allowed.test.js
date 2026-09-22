@@ -328,6 +328,15 @@ test("U7: duplicates collapse, however they are spelled", () => {
   assert.deepEqual(directories, ["/allowed"]);
 });
 
+test("U1b: the outside refusal lists every allowed folder, comma separated, in order", () => {
+  const two = ["/Users/me/Documents", "/Users/me/Downloads"];
+  const fs = fakeFs({ realpath: { "/Users/me/Secrets": "/Users/me/Secrets" } });
+  assert.match(
+    checkReadable("/Users/me/Secrets/x.md", two, fs).error,
+    /\(\/Users\/me\/Documents, \/Users\/me\/Downloads\)/,
+  );
+});
+
 // --- U8: the client's roots --------------------------------------------------------------------
 
 test("U8: a file: root becomes a directory, and a root on another host is ignored", () => {

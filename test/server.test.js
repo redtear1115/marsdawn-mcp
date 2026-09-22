@@ -327,6 +327,18 @@ test("S2: with a configured folder and a client that has no roots, inside works 
   await assertConfined(client, { tree, outside, log });
 });
 
+test("S2b: a refusal names every allowed folder, in the order they were given", async (t) => {
+  const first = treeWithPlan();
+  const second = treeWithPlan();
+  const outside = treeWithPlan();
+  const { client } = await start(t, { folders: [first, second], env: { FAKE_MARSDAWN_MODE: "success" } });
+  const result = await exportCall(client, { input: join(first, "plan.md"), output: join(outside, "escape.pdf") });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /must be inside an allowed folder \(([^)]*)\)/);
+  const listed = /\(([^)]*)\)/.exec(result.content[0].text)[1];
+  assert.equal(listed, `${first}, ${second}`, "both folders, first then second, not just the first");
+});
+
 test("S3: with neither a configured folder nor roots, every call is refused with what to do", async (t) => {
   const tree = treeWithPlan();
   const log = argvLog();
