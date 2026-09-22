@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { assertSameWrittenFile, snapshot } from "./same-file.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const [bundleArgument, marsdawnArgument] = process.argv.slice(2);
@@ -132,16 +133,15 @@ try {
   for (const name of ["notes", ".hidden", "a.b.md", "notes."]) {
     const stem = join(work, name);
     writeFileSync(stem, "# Stem\n\nA line of text.\n");
+    const before = snapshot(defaultOutputFor(stem));
     const result = await call(client, { input: stem, force: true });
     assert.equal(result.isError, undefined, result.content?.[0]?.text);
     const expected = defaultOutputFor(stem);
     // The CLI reports the path it was given after Foundation's standardizedFileURL, which drops a
     // leading /private once the file exists (notes. lands on notes.pdf, which the notes case just
-    // wrote), so the same file can come back spelled /var/… instead of /private/var/…. The claim
-    // is "the PDF is where the server said", so compare what the two spellings resolve to.
-    const reported = result.structuredContent.output;
-    assert.equal(realpathSync.native(reported), expected, `the default output for ${name} (reported ${reported})`);
-    assert.ok(statSync(expected).size > 0, `${expected} is on disk`);
+    // wrote), so the same file can come back spelled /var/… instead of /private/var/…. Spelling
+    // isn't the claim; identity is (see scripts/same-file.js and its test).
+    assertSameWrittenFile({ reported: result.structuredContent.output, expected, before, label: `the default output for ${name}` });
     step(`${name} exported to ${expected}`);
   }
 } finally {
