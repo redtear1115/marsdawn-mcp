@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://marsdawn.southern-light.dev/cli/",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/redtear1115/marsdawn-mcp/releases/download/v0.2.1/marsdawn.mcpb",
-      "version": "0.2.1",
+      "identifier": "https://github.com/redtear1115/marsdawn-mcp/releases/download/v0.2.2/marsdawn.mcpb",
+      "version": "0.2.2",
       "fileSha256": "6794ca488d809f6195976812aa08711255aa97df5f274c2319042c98e22b9954",
       "transport": {
         "type": "stdio"
