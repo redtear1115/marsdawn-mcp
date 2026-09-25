@@ -48,6 +48,33 @@
         "type": "string"
       },
       "description": "One message per Mermaid diagram that failed to render. The PDF is still written."
+    },
+    "diagramErrorDetails": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The error message, same text as the matching entry in diagramErrors."
+          },
+          "fenceLine": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The document line the Mermaid fence starts on. Absent only for fences inside footnotes."
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The error's own document line (fenceLine plus Mermaid's line). Present only when Mermaid's message names a line."
+          }
+        }
+      },
+      "description": "One entry per diagramErrors entry, in the same order, with the document line each error is on when known."
     }
   }
 }

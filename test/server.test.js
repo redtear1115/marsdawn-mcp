@@ -161,6 +161,26 @@ test("a call over stdio returns structuredContent that the client validates agai
   assert.equal(result.structuredContent.paper, "letter");
 });
 
+test("diagramErrorDetails passes the client's outputSchema validation (kit 0.5.4, held)", async (t) => {
+  // The CLI doesn't emit this field yet (kit PR redtear1115/mars-dawn-kit#118, not released); the
+  // fixture stands in for it. This is what proves schemas/export.v1.json must be re-synced no
+  // later than the CLI itself ships it: structuredContent is the CLI's JSON verbatim (server/
+  // marsdawn.js interpretExport), so the moment a released marsdawn prints diagramErrorDetails, a
+  // vendored schema that doesn't know the field yet (additionalProperties: false) makes a strict
+  // client reject every export result, not just the ones with a diagram error.
+  const tree = treeWithPlan();
+  const details = [{ message: "Parse error on line 2", fenceLine: 5, line: 7 }, { message: "Unknown diagram type" }];
+  const client = await connect(
+    t,
+    { FAKE_MARSDAWN_MODE: "success", FAKE_MARSDAWN_DIAGRAM_ERROR_DETAILS: JSON.stringify(details) },
+    [tree],
+  );
+  await client.listTools();
+  const result = await exportCall(client, { input: join(tree, "plan.md") });
+  assert.equal(result.isError, undefined, result.content?.[0]?.text);
+  assert.deepEqual(result.structuredContent.diagramErrorDetails, details);
+});
+
 test("the client rejects structuredContent that breaks outputSchema, so the check above can fail", async (t) => {
   const tree = treeWithPlan();
   const client = await connect(t, { FAKE_MARSDAWN_MODE: "bad_theme" }, [tree]);

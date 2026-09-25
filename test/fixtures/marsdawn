@@ -58,7 +58,13 @@ switch (process.env.FAKE_MARSDAWN_MODE ?? "success") {
     const theme = args.includes("--theme") ? args[args.indexOf("--theme") + 1] : "dawn";
     const paper = args.includes("--paper") ? args[args.indexOf("--paper") + 1] : "a4";
     const diagramErrors = process.env.FAKE_MARSDAWN_DIAGRAM_ERROR ? [process.env.FAKE_MARSDAWN_DIAGRAM_ERROR] : [];
-    process.stdout.write(`${JSON.stringify({ diagramErrors, ok: true, output, pages: 1, paper, theme })}\n`);
+    // Present only when a test sets it: the field is optional, and absent means omitted, not null.
+    const diagramErrorDetails = process.env.FAKE_MARSDAWN_DIAGRAM_ERROR_DETAILS
+      ? JSON.parse(process.env.FAKE_MARSDAWN_DIAGRAM_ERROR_DETAILS)
+      : undefined;
+    const result = { diagramErrors, ok: true, output, pages: 1, paper, theme };
+    if (diagramErrorDetails !== undefined) result.diagramErrorDetails = diagramErrorDetails;
+    process.stdout.write(`${JSON.stringify(result)}\n`);
     process.exit(0);
   }
   case "input_not_found":

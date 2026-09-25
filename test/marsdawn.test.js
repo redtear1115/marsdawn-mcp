@@ -201,6 +201,15 @@ test("export: diagram errors are reported alongside a success", async () => {
   assert.match(result.content[0].text, /A diagram didn't render: Parse error on line 2/);
 });
 
+test("export: diagramErrorDetails, when the CLI prints it, passes through structuredContent as-is", async () => {
+  const details = [{ message: "Parse error on line 2", fenceLine: 5, line: 7 }];
+  const result = await fakeExporter("success", { FAKE_MARSDAWN_DIAGRAM_ERROR_DETAILS: JSON.stringify(details) })({
+    input,
+  });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(result.structuredContent.diagramErrorDetails, details);
+});
+
 test("export: the CLI is given exactly the built arguments", async () => {
   const log = join(mkdtempSync(join(tmpdir(), "marsdawn-mcp-")), "argv");
   await fakeExporter("success", { FAKE_MARSDAWN_ARGV: log })({ input, paper: "letter", force: true });
