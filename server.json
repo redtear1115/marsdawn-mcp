@@ -14,7 +14,7 @@
       "registryType": "mcpb",
       "identifier": "https://github.com/redtear1115/marsdawn-mcp/releases/download/v0.2.3/marsdawn.mcpb",
       "version": "0.2.3",
-      "fileSha256": "93a730b640d1fc845a77a73c5ff2e30ac38c049e8155bc79796b78ceb068a68e",
+      "fileSha256": "dcf0269acbcf59af17c21f1c6c8efe068d0212a5bf44a64fea61a23ce26e28bf",
       "transport": {
         "type": "stdio"
       }
