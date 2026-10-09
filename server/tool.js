@@ -79,7 +79,7 @@ export const openTool = {
   title: "Open in MarsDawn",
   description: [
     "Open a Markdown file in the MarsDawn app on this Mac for the user to review, with the marsdawn",
-    "command-line tool. Needs the MarsDawn app, which is not publicly available yet.",
+    "command-line tool. Needs the MarsDawn app, from the Mac App Store (https://apps.apple.com/app/id6812925073).",
     "Call this once per file: the window stays open and follows the file's later edits by itself,",
     "so there's no need to call it again after every change, only when a new file needs review or",
     "the user should be sent to a different line.",

@@ -42,7 +42,7 @@ if (command === "open") {
       failure(
         3,
         "app_not_installed",
-        "MarsDawn is not installed. open needs the app, which is not publicly available yet; export works without it.",
+        "MarsDawn is not installed. open needs the app, from the Mac App Store (https://apps.apple.com/app/id6812925073); export works without it.",
       );
       break;
     default:
