@@ -74,7 +74,7 @@
           }
         }
       },
-      "description": "One entry per diagramErrors entry, in the same order, with the document line each error is on when known."
+      "description": "The same failures as `diagramErrors`, in the same order, each as\n  `{message, fenceLine, line}`. `fenceLine` is the document line the diagram's fence starts on,\n  present whenever that's known. `line` is the document line of the error itself (`fenceLine` plus\n  Mermaid's own line number from its message), present only when Mermaid's message names a line —\n  some errors, like an undetected diagram type, don't. Either can be absent on its own."
     }
   }
 }
