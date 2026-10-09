@@ -35,8 +35,8 @@ Mermaid diagrams included.
 ### `open_in_marsdawn`
 
 Runs `marsdawn open <path>[:line] --json` and returns the CLI's JSON result. Needs the MarsDawn
-app installed, which isn't publicly available yet; call it once per file, since the window it
-opens follows that file's later edits by itself, without being called again.
+app installed, from the [Mac App Store](https://apps.apple.com/app/id6812925073); call it once
+per file, since the window it opens follows that file's later edits by itself, without being called again.
 
 | Argument | |
 |---|---|
