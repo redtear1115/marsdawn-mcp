@@ -97,7 +97,7 @@ just reasoned about.
 ## Issues and pull requests
 
 Keep pull requests small and focused. Describe what changed and why. CI runs the unit tests across
-Node 20/22/24, the schema check, manifest validation, the packed-bundle smoke test and the
+Node 20/22/24/26, the schema check, manifest validation, the packed-bundle smoke test and the
 `server.json` hash check — all of it needs to be green before review.
 
 ## License
